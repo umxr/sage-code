@@ -1,0 +1,10 @@
+{
+  "name": "sage-code",
+  "description": "Self-Adapting Generative Engine — autonomous learning plugin that captures session events, reflects on outcomes, builds project-scoped knowledge, and self-evaluates its own rules",
+  "version": "0.1.0",
+  "author": {
+    "name": "SAGE-Code Contributors"
+  },
+  "repository": "https://github.com/sage-code/sage-code",
+  "license": "MIT"
+}
