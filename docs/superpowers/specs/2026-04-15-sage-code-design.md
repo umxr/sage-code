@@ -92,8 +92,7 @@ sage-code/
 │       ├── on-session-start.sh  # Load context, initialize event log
 │       ├── on-tool-use.sh       # Capture tool outcomes to event log
 │       ├── on-correction.sh     # Detect user corrections via prompt analysis
-│       ├── on-session-end.sh    # Trigger reflection subagent
-│       └── on-commit.sh         # Capture commit context
+│       └── on-session-end.sh    # Write session summary, mark as unprocessed
 ├── templates/
 │   ├── knowledge-schema.json    # Schema for knowledge entries
 │   └── event-log-schema.json   # Schema for captured events
@@ -140,12 +139,18 @@ Passively observes session events through Claude Code hooks and writes structure
 
 | Hook Event | What it captures | Script | Blocking? |
 |---|---|---|---|
-| `SessionStart` | Initializes event log, records git branch/diff/recent commits | `on-session-start.sh` | No (async) |
+| `SessionStart` | Initializes event log, records git branch/diff/recent commits. Returns a `systemMessage` that triggers the `sage-replay` skill. | `on-session-start.sh` | No (async) |
 | `PostToolUse` | Tool name, input summary, outcome, duration. Filters to state-changing tools (Write, Edit, Bash, Agent) | `on-tool-use.sh` | No (async) |
 | `UserPromptSubmit` | Regex-based correction detection ("no", "don't", "actually", "instead", "wrong") and positive signals ("perfect", "exactly", "yes that's right") | `on-correction.sh` | No (async) |
-| `Stop` | Session summary: total tools, errors, files modified, duration. Triggers reflector. | `on-session-end.sh` | No (async) |
+| `Stop` | Session summary: total tools, errors, files modified, duration. Marks session event log as "unprocessed". | `on-session-end.sh` | No (async) |
 
 All hooks run with `async: true` and complete in <100ms (append-only file writes).
+
+### How Reflection is Triggered
+
+Shell hooks cannot dispatch subagents directly. Instead, SAGE-Code uses **deferred reflection**: the `Stop` hook marks the session's event log as unprocessed (writes a `.unprocessed` marker file). On the NEXT session start, the `sage-replay` skill checks for unprocessed event logs and runs reflection on them BEFORE performing replay. This means there is a one-session delay between an event and its reflection — an acceptable trade-off for architectural simplicity.
+
+The `SessionStart` hook returns a `systemMessage` containing `"[sage] Run /sage-replay to initialize"`, which triggers the sage-replay skill automatically.
 
 ### Event Log Format
 
@@ -175,7 +180,9 @@ A subagent that runs at session end, transforming raw event logs into generalize
 
 ### Trigger
 
-The `Stop` hook dispatches the `sage-reflect` skill, which spawns the `reflector` subagent.
+Reflection is **deferred** — it runs at the START of the next session, not at the end of the current one. The `sage-replay` skill checks for `.unprocessed` marker files in `.sage/events/` and dispatches the `reflector` subagent for each unprocessed session before performing knowledge replay. After reflection completes, the marker file is removed.
+
+This design avoids the impossible task of having a shell hook dispatch a subagent, and ensures that reflection never delays the user's current session ending.
 
 ### Reflector Subagent
 
@@ -200,6 +207,7 @@ Generalize specific instances into reusable heuristics.
 Example: "user corrected .then() to async/await" → "ALWAYS use async/await over .then() chains in this project"
 
 Each heuristic gets:
+- **id:** deterministic slug from category + heading, e.g. `pitfall-never-fs-readsync`, `preference-async-await-over-then`
 - **category:** pitfall | strategy | preference | architecture | convention
 - **confidence:** low (1 observation) | medium (2-3) | high (4+)
 - **scope:** project | language | universal
@@ -305,7 +313,12 @@ Selective retrieval that injects only relevant knowledge at session start.
 
 ### Trigger
 
-`SessionStart` hook gathers context, then `sage-replay` skill activates automatically.
+The `SessionStart` hook returns a `systemMessage` that triggers the `sage-replay` skill. The skill runs in two phases:
+
+1. **Reflect phase:** Check for `.unprocessed` marker files in `.sage/events/`. For each, dispatch the `reflector` subagent to process the event log and update knowledge files. Remove the marker after processing.
+2. **Replay phase:** Score existing knowledge against the current session's context and inject relevant heuristics.
+
+This two-phase design ensures reflection from the previous session completes before replay loads potentially-updated knowledge.
 
 ### Context Detection
 
@@ -355,7 +368,7 @@ Periodic self-evaluation that assesses whether accumulated knowledge is actually
 
 ### Trigger
 
-Runs after every 10 sessions OR once per day (whichever comes first). Tracked in `.sage/meta/config.json`.
+Piggybacks on the `sage-replay` skill at session start. After the reflect and replay phases complete, sage-replay checks `.sage/meta/config.json` for `last_meta_eval` timestamp and `sessions_since_eval` counter. If either threshold is exceeded (10 sessions or 1 day), it dispatches the `sage-meta` skill which spawns the `meta-evaluator` subagent. The counter increments on every session start regardless.
 
 ### Meta-Evaluator Subagent
 
@@ -481,10 +494,18 @@ Session N starts
     │
     ▼
 [SessionStart hook] ──► Initialize event log, gather git context
-    │
+    │                    Return systemMessage to trigger sage-replay
     ▼
-[sage-replay skill] ──► Score knowledge vs context, inject top 15 heuristics
-    │
+[sage-replay skill: REFLECT PHASE]
+    │  Check for .unprocessed event logs from Session N-1
+    │  If found: dispatch reflector subagent
+    │     reflector ──► Parse → Evaluate → Abstract → Merge → Write
+    │                   Update .sage/knowledge/*.md
+    │                   Remove .unprocessed marker
+    ▼
+[sage-replay skill: REPLAY PHASE]
+    │  Score knowledge vs current git context
+    │  Inject top 10-15 relevant heuristics (≤500 tokens)
     ▼
 User works normally
     │
@@ -492,17 +513,18 @@ User works normally
     ├──[PostToolUse hook] ──► Log tool outcomes
     │
     ▼
-[Stop hook] ──► Write session summary, dispatch reflector
-    │
+[Stop hook] ──► Write session summary
+                Mark event log as .unprocessed
+                (reflection deferred to Session N+1 start)
+
+═══════════════════════════════════════════
+Periodic (every 10 sessions or 1 day):
+
+[sage-meta skill] ──► Dispatch meta-evaluator subagent
+    │                  Score heuristics against outcomes
+    │                  Promote / Demote / Prune
     ▼
-[reflector subagent] ──► Parse → Evaluate → Abstract → Merge → Write
-    │                     Update .sage/knowledge/*.md
-    ▼
-(every 10 sessions or 1 day)
-    │
-    ▼
-[meta-evaluator subagent] ──► Score heuristics, Promote/Demote/Prune
-    │
-    ▼
-[knowledge-curator subagent] ──► Deduplicate, consolidate, update CLAUDE.md
+[knowledge-curator subagent] ──► Deduplicate, consolidate
+                                  Update CLAUDE.md managed section
+                                  Update .sage/README.md
 ```
