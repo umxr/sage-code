@@ -1,6 +1,20 @@
-# sage-code
+<p align="center">
+  <img src="assets/logo.svg" alt="SAGE-Code Logo" width="200" />
+</p>
 
-Self-Adapting Generative Engine for Code — a Claude Code plugin that makes Claude autonomously learn and improve within each project.
+<h1 align="center">sage-code</h1>
+
+<p align="center">
+  <strong>Self-Adapting Generative Engine for Code</strong><br/>
+  A Claude Code plugin that makes Claude autonomously learn and improve within each project.
+</p>
+
+<p align="center">
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-green.svg" alt="MIT License" /></a>
+  <a href="CHANGELOG.md"><img src="https://img.shields.io/badge/version-0.1.0-blue.svg" alt="Version" /></a>
+</p>
+
+---
 
 Grounded in peer-reviewed research: [Reflexion (NeurIPS 2023)](https://arxiv.org/abs/2303.11366), [Contextual Experience Replay (ACL 2025)](https://arxiv.org/abs/2506.06698), [SAGE (Neurocomputing 2025)](https://dl.acm.org/doi/10.1016/j.neucom.2025.130470), and the [ICML 2025 position on metacognitive learning](https://openreview.net/forum?id=4KhDd0Ozqe).
 
@@ -139,6 +153,14 @@ bash sage-code/tests/run-all.sh
 - [Design spec](docs/superpowers/specs/2026-04-15-sage-code-design.md) — Full architecture with scientific foundations
 - [Implementation plan](docs/superpowers/plans/2026-04-15-sage-code-plan.md) — Task-by-task build plan
 
+## Contributing
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
+
+## Security
+
+See [SECURITY.md](SECURITY.md) for reporting vulnerabilities.
+
 ## License
 
-MIT
+[MIT](LICENSE)

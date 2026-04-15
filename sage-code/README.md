@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="../assets/logo.svg" alt="SAGE-Code Logo" width="160" />
+</p>
+
 # sage-code
 
 Self-Adapting Generative Engine for Code — a Claude Code plugin that makes Claude autonomously learn and improve within each project.
