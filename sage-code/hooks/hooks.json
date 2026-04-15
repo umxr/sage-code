@@ -1,0 +1,52 @@
+{
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "SAGE_PROJECT_DIR=\"$PWD\" CLAUDE_SESSION_ID=\"$CLAUDE_SESSION_ID\" bash \"$CLAUDE_PLUGIN_DIR/hooks/scripts/on-session-start.sh\"",
+            "async": true,
+            "asyncTimeout": 5000
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "echo '$TOOL_INPUT' | SAGE_PROJECT_DIR=\"$PWD\" CLAUDE_SESSION_ID=\"$CLAUDE_SESSION_ID\" bash \"$CLAUDE_PLUGIN_DIR/hooks/scripts/on-tool-use.sh\"",
+            "async": true,
+            "asyncTimeout": 3000
+          }
+        ]
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "echo '$USER_INPUT' | SAGE_PROJECT_DIR=\"$PWD\" CLAUDE_SESSION_ID=\"$CLAUDE_SESSION_ID\" bash \"$CLAUDE_PLUGIN_DIR/hooks/scripts/on-correction.sh\"",
+            "async": true,
+            "asyncTimeout": 3000
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "SAGE_PROJECT_DIR=\"$PWD\" CLAUDE_SESSION_ID=\"$CLAUDE_SESSION_ID\" bash \"$CLAUDE_PLUGIN_DIR/hooks/scripts/on-session-end.sh\"",
+            "async": true,
+            "asyncTimeout": 5000
+          }
+        ]
+      }
+    ]
+  }
+}
