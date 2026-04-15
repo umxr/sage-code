@@ -1,0 +1,18 @@
+{
+  "version": "1.0.0",
+  "min_session_tools_for_reflection": 5,
+  "max_knowledge_entries_per_file": 100,
+  "replay_max_heuristics": 15,
+  "replay_max_tokens": 500,
+  "meta_eval_interval_days": 1,
+  "meta_eval_interval_sessions": 10,
+  "prune_min_observations": 10,
+  "prune_score_threshold": 0.2,
+  "promote_score_threshold": 0.7,
+  "stale_days": 30,
+  "new_rule_grace_days": 7,
+  "reflector_model": "sonnet",
+  "meta_evaluator_model": "sonnet",
+  "sessions_since_eval": 0,
+  "last_meta_eval": null
+}
