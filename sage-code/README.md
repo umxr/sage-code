@@ -37,8 +37,8 @@ On your first session in any project, SAGE will automatically initialize a `.sag
 1. **Hooks** passively capture session events (corrections, tool outcomes, successes)
 2. **Reflector** analyzes events and extracts generalized heuristics with confidence scores
 3. **Knowledge files** accumulate in `.sage/knowledge/` as categorized markdown
-4. **Replay** injects only relevant heuristics at session start based on git context
-5. **Meta-evaluator** periodically scores rules and prunes ineffective ones
+4. **Rules** — `sage-publish-rules` writes one file per heuristic to `.claude/rules/sage/`; Claude Code loads a path-scoped rule only when Claude reads a matching file
+5. **Meta-evaluator** periodically scores rules with measured exposure (which rules loaded in which session) and prunes ineffective ones
 
 ## Project data
 
@@ -47,6 +47,7 @@ SAGE creates a `.sage/` directory in your project:
 - `knowledge/` — Learned heuristics (committed to git, shared with team)
 - `events/` — Raw session logs (gitignored, personal)
 - `meta/` — Evaluation scores and config (committed to git)
+- `.claude/rules/sage/` — One rule file per heuristic (committed to git, made from `knowledge/`; do not edit)
 
 ## Configuration
 

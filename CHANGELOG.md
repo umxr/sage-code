@@ -5,6 +5,34 @@ All notable changes to sage-code will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.0] - 2026-09-17
+
+Replay uses native Claude Code rules, and meta-evaluation uses measured exposure.
+
+### Added
+- `sage-publish-rules` script: writes one rule file per heuristic to `.claude/rules/sage/`, with `paths:` frontmatter from the new `Paths` field of a knowledge entry
+- `InstructionsLoaded` hook: records a `rule_loaded` event each time Claude Code loads a sage rule, with the load reason and the file that triggered the load
+- `sage-exposure` script: aggregates rule loads into `.sage/meta/exposure.json` for the meta-evaluator and the curator
+- Config key `publish_min_confidence` (default `low`)
+- `rules_loaded` in the `session_end` summary
+
+### Changed
+- The reflector gives each heuristic a `Paths` field with the files where it applies
+- The meta-evaluator compares sessions where a rule was loaded with sessions where it was not
+- A rule is stale only when it has no new evidence **and** did not load in `stale_days`. Before, a rule that worked was pruned, because a rule that works causes no new corrections
+- The SessionStart hook finds a new session by its `session_start` event, and adds context only when a reflection is pending or meta-evaluation is due
+- `sage-replay` no longer scores and prints heuristics; Claude Code loads the rule files itself
+
+### Removed
+- The managed "Sage Learnings" section in `CLAUDE.md`. SAGE-Code no longer edits `CLAUDE.md`
+- The PROMOTE action of the meta-evaluator
+- Config keys `replay_max_heuristics`, `replay_max_tokens`, and `promote_score_threshold`
+
+### Migration
+- The first run of `sage-publish-rules` removes the old "Sage Learnings" section from `CLAUDE.md`, if its start and end markers are there
+- Commit the new `.claude/rules/sage/` directory
+- Add the line `meta/exposure.json` to the `.sage/.gitignore` of a project that was initialized with an earlier version
+
 ## [0.2.0] - 2026-09-17
 
 Brings the plugin in line with the current Claude Code plugin, hook, skill, and subagent conventions. In 0.1.0 the hooks did not receive real event data, so no session events were captured.

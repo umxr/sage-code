@@ -4,6 +4,8 @@
 **Status:** Design  
 **Author:** Claude + Umar  
 
+> **Note (2026-09-17):** Layer 4 (Replay) and Layer 5 (Meta-Learning) changed in 0.3.0. See [Native Rules and Measured Exposure](2026-09-17-native-rules-and-exposure-design.md). The hook details in this document changed in 0.2.0: hooks read JSON from stdin, and `SessionEnd` replaced `Stop`. See `CHANGELOG.md`.
+
 ## Overview
 
 SAGE-Code is a Claude Code plugin that makes Claude autonomously learn and improve within each project it works on. It captures session events, reflects on outcomes, builds project-scoped knowledge, and periodically evaluates its own rules — all without user intervention.
