@@ -15,7 +15,7 @@ SAGE-Code observes your Claude Code sessions and builds project-specific knowled
 - **Replays** knowledge as native Claude Code rules in `.claude/rules/sage/`; a path-scoped rule loads only when Claude reads a matching file
 - **Self-evaluates** with measured exposure (which rules loaded in which session), pruning the rules that do not help
 
-Everything is fully autonomous — no manual intervention needed.
+Capture is automatic: the hooks record each session while you work. Reflection and publishing run when Claude invokes the `sage-replay` skill at the start of a later session, or when you run `/sage-code:sage-reflect`.
 
 ## Installation
 

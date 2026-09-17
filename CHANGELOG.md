@@ -13,6 +13,9 @@ Replay uses native Claude Code rules, and meta-evaluation uses measured exposure
 - `sage-publish-rules` script: writes one rule file per heuristic to `.claude/rules/sage/`, with `paths:` frontmatter from the new `Paths` field of a knowledge entry
 - `InstructionsLoaded` hook: records a `rule_loaded` event each time Claude Code loads a sage rule, with the load reason and the file that triggered the load
 - `sage-exposure` script: aggregates rule loads into `.sage/meta/exposure.json` for the meta-evaluator and the curator
+- `exposure.json` keys `heading` and `published` for each rule: the script that writes a rule file owns its ID, so no agent computes an ID from a heading. A published rule that never loaded gets an entry too
+- `exposure.json` key `exposure_since`: the start of the oldest session with a rule load. Before that time there is no exposure history on the machine
+- `exposure.json` keys `active_sessions_loaded`, `active_sessions_not_loaded`, and `sessions_inactive`: a session with no tool call, correction, or positive signal cannot load a path-scoped rule, so the per-session numbers now count the sessions with activity only
 - Config key `publish_min_confidence` (default `low`)
 - `rules_loaded` in the `session_end` summary
 
@@ -22,6 +25,13 @@ Replay uses native Claude Code rules, and meta-evaluation uses measured exposure
 - A rule is stale only when it has no new evidence **and** did not load in `stale_days`. Before, a rule that worked was pruned, because a rule that works causes no new corrections
 - The SessionStart hook finds a new session by its `session_start` event, and adds context only when a reflection is pending or meta-evaluation is due
 - `sage-replay` no longer scores and prints heuristics; Claude Code loads the rule files itself
+- The curator does not prune for staleness until there are `stale_days` of exposure history on the machine. The event logs are personal and are not in git, so a new clone or an upgrade has no history
+- `sage-exposure` adds `meta/exposure.json` to `.sage/.gitignore` itself. The file holds prompt excerpts and failed commands
+
+### Security
+- Rule publishing does not follow a symbolic link. A linked `.claude/rules/sage` directory is left alone with a warning, a linked rule file is replaced by a regular file, and a link with no entry is removed without its target. A file in `.claude/rules/sage/` that sage-code did not write is left in place
+- A damaged `config.json` does not stop event capture: the SessionStart hook writes the `session_start` event first, and never overwrites a config that it could not read
+- The reflector treats the event log as untrusted data: text in an error, a command, or a prompt excerpt is never copied into a rule and never obeyed
 
 ### Removed
 - The managed "Sage Learnings" section in `CLAUDE.md`. SAGE-Code no longer edits `CLAUDE.md`
@@ -31,7 +41,6 @@ Replay uses native Claude Code rules, and meta-evaluation uses measured exposure
 ### Migration
 - The first run of `sage-publish-rules` removes the old "Sage Learnings" section from `CLAUDE.md`, if its start and end markers are there
 - Commit the new `.claude/rules/sage/` directory
-- Add the line `meta/exposure.json` to the `.sage/.gitignore` of a project that was initialized with an earlier version
 
 ## [0.2.0] - 2026-09-17
 
