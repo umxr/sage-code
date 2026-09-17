@@ -1,11 +1,29 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# SessionStart hook.
+# Claude Code sends the event as JSON on stdin, with `session_id` and `source`
+# (startup, resume, clear, compact, or fork). This hook runs synchronously so
+# that its additionalContext reaches Claude before the first prompt.
+
 # ── Environment ────────────────────────────────────────────────────────────
-SAGE_PROJECT_DIR="${SAGE_PROJECT_DIR:-$(pwd)}"
-SESSION_ID="${CLAUDE_SESSION_ID:-unknown}"
+SAGE_PROJECT_DIR="${SAGE_PROJECT_DIR:-${CLAUDE_PROJECT_DIR:-$(pwd)}}"
 SAGE_DIR="$SAGE_PROJECT_DIR/.sage"
 SCRIPT_DIR="$(cd "$(dirname "$0")/../.." && pwd)"
+
+# ── Read stdin ─────────────────────────────────────────────────────────────
+export _HOOK_INPUT
+_HOOK_INPUT=$(cat)
+
+# Session ID comes from the hook input; keep it safe for use in a file name
+SESSION_ID=$(python3 -c '
+import json, os, re
+try:
+    data = json.loads(os.environ.get("_HOOK_INPUT", ""))
+except json.JSONDecodeError:
+    data = {}
+print(re.sub(r"[^A-Za-z0-9._-]", "_", str(data.get("session_id") or "unknown")))
+')
 
 # ── Bootstrap .sage/ if needed ─────────────────────────────────────────────
 if [ ! -d "$SAGE_DIR" ]; then
@@ -18,46 +36,92 @@ mkdir -p "$SAGE_DIR/events"
 
 # ── Gather git context (gracefully) ───────────────────────────────────────
 BRANCH=""
-RECENT_COMMITS="[]"
-DIFF_FILES="[]"
+RECENT_COMMITS=""
+DIFF_FILES=""
 
 if git -C "$SAGE_PROJECT_DIR" rev-parse --is-inside-work-tree > /dev/null 2>&1; then
   BRANCH=$(git -C "$SAGE_PROJECT_DIR" rev-parse --abbrev-ref HEAD 2>/dev/null || echo "")
-  RECENT_COMMITS=$(git -C "$SAGE_PROJECT_DIR" log --oneline -5 --no-decorate 2>/dev/null \
-    | python3 -c "import sys,json; lines=[l.strip() for l in sys.stdin if l.strip()]; print(json.dumps(lines))" \
-    || echo "[]")
-  DIFF_FILES=$(git -C "$SAGE_PROJECT_DIR" diff --name-only HEAD 2>/dev/null \
-    | python3 -c "import sys,json; lines=[l.strip() for l in sys.stdin if l.strip()]; print(json.dumps(lines))" \
-    || echo "[]")
+  RECENT_COMMITS=$(git -C "$SAGE_PROJECT_DIR" log --oneline -5 --no-decorate 2>/dev/null || echo "")
+  DIFF_FILES=$(git -C "$SAGE_PROJECT_DIR" diff --name-only HEAD 2>/dev/null || echo "")
 fi
 
-# ── Write session_start event ──────────────────────────────────────────────
-TS=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+export _HOOK_SESSION_ID="$SESSION_ID"
+export _HOOK_PROJECT_DIR="$SAGE_PROJECT_DIR"
+export _HOOK_SAGE_DIR="$SAGE_DIR"
+export _HOOK_EVENT_LOG="$EVENT_LOG"
+export _HOOK_BRANCH="$BRANCH"
+export _HOOK_RECENT_COMMITS="$RECENT_COMMITS"
+export _HOOK_DIFF_FILES="$DIFF_FILES"
 
-python3 - <<PYEOF >> "$EVENT_LOG"
-import json, sys
-event = {
-    "ts": "$TS",
-    "type": "session_start",
-    "session_id": "$SESSION_ID",
-    "branch": "$BRANCH",
-    "cwd": "$SAGE_PROJECT_DIR",
-    "recent_commits": $RECENT_COMMITS,
-    "diff_files": $DIFF_FILES,
-}
-print(json.dumps(event))
+python3 << 'PYEOF'
+import glob, json, os
+from datetime import datetime, timezone
+
+env        = os.environ
+session_id = env.get("_HOOK_SESSION_ID", "unknown")
+sage_dir   = env.get("_HOOK_SAGE_DIR", "")
+event_log  = env.get("_HOOK_EVENT_LOG", "")
+
+try:
+    data = json.loads(env.get("_HOOK_INPUT", ""))
+except json.JSONDecodeError:
+    data = {}
+
+def lines(value):
+    return [l.strip() for l in value.splitlines() if l.strip()]
+
+# SessionStart also fires on resume and compaction with the same session ID.
+# Only the first firing for a session writes session_start and counts it.
+is_new_session = not os.path.isfile(event_log) or os.path.getsize(event_log) == 0
+
+if is_new_session:
+    event = {
+        "ts":             datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+        "type":           "session_start",
+        "session_id":     session_id,
+        "source":         data.get("source", "startup"),
+        "branch":         env.get("_HOOK_BRANCH", ""),
+        "cwd":            env.get("_HOOK_PROJECT_DIR", ""),
+        "recent_commits": lines(env.get("_HOOK_RECENT_COMMITS", "")),
+        "diff_files":     lines(env.get("_HOOK_DIFF_FILES", "")),
+    }
+    with open(event_log, "a") as f:
+        f.write(json.dumps(event) + "\n")
+
+    # ── Increment sessions_since_eval in config.json ──────────────────────
+    config = os.path.join(sage_dir, "meta", "config.json")
+    with open(config) as f:
+        cfg = json.load(f)
+    cfg["sessions_since_eval"] = cfg.get("sessions_since_eval", 0) + 1
+    with open(config, "w") as f:
+        json.dump(cfg, f, indent=2)
+
+# ── Tell Claude what there is to replay ───────────────────────────────────
+pending = len(glob.glob(os.path.join(sage_dir, "events", "*.unprocessed")))
+
+heuristics = 0
+for path in glob.glob(os.path.join(sage_dir, "knowledge", "*.md")):
+    with open(path) as f:
+        heuristics += sum(1 for line in f if line.startswith("### "))
+
+# Nothing learned and nothing pending: stay silent and add no context
+if pending == 0 and heuristics == 0:
+    raise SystemExit(0)
+
+# additionalContext is written as statements of fact, not as commands
+context = (
+    "[sage-code] This project has a SAGE-Code knowledge base in .sage/. "
+    f"It holds {heuristics} learned heuristic(s) in .sage/knowledge/, and "
+    f"{pending} earlier session log(s) in .sage/events/ are not reflected on yet. "
+    f"The event log for this session is .sage/events/session-{session_id}.jsonl. "
+    "The sage-code:sage-replay skill processes the pending reflections and "
+    "loads the heuristics that are relevant to the current git context."
+)
+
+print(json.dumps({
+    "hookSpecificOutput": {
+        "hookEventName":     "SessionStart",
+        "additionalContext": context,
+    }
+}))
 PYEOF
-
-# ── Increment sessions_since_eval in config.json ──────────────────────────
-CONFIG="$SAGE_DIR/meta/config.json"
-python3 - <<PYEOF
-import json
-with open("$CONFIG") as f:
-    cfg = json.load(f)
-cfg["sessions_since_eval"] = cfg.get("sessions_since_eval", 0) + 1
-with open("$CONFIG", "w") as f:
-    json.dump(cfg, f, indent=2)
-PYEOF
-
-# ── Output system message ─────────────────────────────────────────────────
-python3 -c "import json; print(json.dumps({'systemMessage': '[sage-code] Session initialized. Run /sage-replay to load project knowledge and process any pending reflections.'}))"
