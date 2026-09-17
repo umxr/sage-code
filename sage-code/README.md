@@ -12,8 +12,8 @@ SAGE-Code observes your Claude Code sessions and builds project-specific knowled
 
 - **Captures** corrections, tool outcomes, and patterns during sessions
 - **Reflects** on what worked and what didn't, extracting reusable heuristics
-- **Replays** relevant knowledge at the start of each session
-- **Self-evaluates** whether its learned rules actually help, pruning ineffective ones
+- **Replays** knowledge as native Claude Code rules in `.claude/rules/sage/`; a path-scoped rule loads only when Claude reads a matching file
+- **Self-evaluates** with measured exposure (which rules loaded in which session), pruning the rules that do not help
 
 Everything is fully autonomous — no manual intervention needed.
 

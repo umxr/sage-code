@@ -92,7 +92,7 @@ Plugin skills are namespaced by the plugin name. The short forms (`/sage-status`
 
 ## How it works
 
-1. **SessionStart hook** initializes the event log, gathers git context, and tells Claude (through `additionalContext`) what there is to replay
+1. **SessionStart hook** initializes the event log and gathers git context. It adds context for Claude (through `additionalContext`) only when a reflection is pending or meta-evaluation is due
 2. **PostToolUse and PostToolUseFailure hooks** capture the outcomes of state-changing tools (Write, Edit, Bash, ...). Claude Code reports a failed tool call as `PostToolUseFailure`, so SAGE does not guess failures from the output text
 3. **UserPromptSubmit hook** detects corrections ("no, use X instead") and praise ("perfect, exactly")
 4. **SessionEnd hook** writes a session summary and marks the log for deferred reflection
