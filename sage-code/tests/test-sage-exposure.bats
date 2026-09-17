@@ -16,7 +16,8 @@ teardown() {
 }
 
 # write_session <session id> <day of month> <event>...
-# Each event is one of: start | load:<rule_id>:<load_reason> | correction:<text> | fail:<command>
+# Each event is one of:
+#   start | load:<rule_id>:<load_reason> | correction:<text> | fail:<command> | ok:<command>
 write_session() {
   python3 - "$TEST_DIR/.sage/events/session-$1.jsonl" "$2" "${@:3}" <<'PY'
 import json, sys
@@ -35,6 +36,8 @@ with open(path, "w") as f:
             event.update(type="correction", signal="negative", excerpt=rest)
         elif kind == "fail":
             event.update(type="tool_outcome", tool="Bash", file_path="", command=rest, success=False)
+        elif kind == "ok":
+            event.update(type="tool_outcome", tool="Bash", file_path="", command=rest, success=True)
         f.write(json.dumps(event) + "\n")
 PY
 }
@@ -157,6 +160,56 @@ print($1)
   grep -q '^meta/exposure.json$' "$TEST_DIR/.sage/.gitignore"
 }
 
+# ── The derived file stays out of git ─────────────────────────────────────
+
+@test "sage-exposure appends the ignore line and keeps the other lines" {
+  printf 'events/\n' > "$TEST_DIR/.sage/.gitignore"
+  "$EXPOSURE" "$TEST_DIR"
+  grep -q '^events/$' "$TEST_DIR/.sage/.gitignore"
+  [ "$(grep -c '^meta/exposure.json$' "$TEST_DIR/.sage/.gitignore")" -eq 1 ]
+  "$EXPOSURE" "$TEST_DIR"
+  [ "$(grep -c '^meta/exposure.json$' "$TEST_DIR/.sage/.gitignore")" -eq 1 ]
+}
+
+@test "sage-exposure adds the ignore line to a file with no final newline" {
+  printf 'events/' > "$TEST_DIR/.sage/.gitignore"
+  "$EXPOSURE" "$TEST_DIR"
+  grep -q '^events/$' "$TEST_DIR/.sage/.gitignore"
+  grep -q '^meta/exposure.json$' "$TEST_DIR/.sage/.gitignore"
+}
+
+@test "sage-exposure creates .sage/.gitignore when it is missing" {
+  rm "$TEST_DIR/.sage/.gitignore"
+  "$EXPOSURE" "$TEST_DIR"
+  grep -q '^meta/exposure.json$' "$TEST_DIR/.sage/.gitignore"
+}
+
+# ── Sessions with no activity ─────────────────────────────────────────────
+
+@test "per-session numbers count only the sessions with activity" {
+  write_session s1 1 start "load:$RULE:path_glob_match" "correction:no, a"
+  write_session s2 2 start "load:$RULE:path_glob_match" "correction:no, b"
+  write_session s3 3 start "load:$RULE:path_glob_match" "correction:no, c"
+  write_session s4 4 start "correction:no, d"
+  for day in 05 06 07 08 09 10; do write_session "s$day" "$day" start; done
+  "$EXPOSURE" "$TEST_DIR"
+  [ "$(rule_field "r['corrections_per_session_loaded']")" = "1.0" ]
+  [ "$(rule_field "r['corrections_per_session_not_loaded']")" = "1.0" ]
+  [ "$(rule_field "d['sessions_inactive']")" = "6" ]
+  [ "$(rule_field "r['active_sessions_loaded']")" = "3" ]
+  [ "$(rule_field "r['active_sessions_not_loaded']")" = "1" ]
+  [ "$(rule_field "r['sessions_not_loaded']")" = "7" ]
+}
+
+@test "a session with a tool call that succeeded is active" {
+  write_session s1 1 start "load:$RULE:path_glob_match" "correction:no, a"
+  write_session s2 2 start "ok:npm test"
+  "$EXPOSURE" "$TEST_DIR"
+  [ "$(rule_field "d['sessions_inactive']")" = "0" ]
+  [ "$(rule_field "r['active_sessions_not_loaded']")" = "1" ]
+  [ "$(rule_field "r['corrections_per_session_not_loaded']")" = "0.0" ]
+}
+
 # ── Published rule files ──────────────────────────────────────────────────
 
 @test "a published rule that never loaded has an entry with no exposure" {
@@ -168,6 +221,8 @@ print($1)
   [ "$(rule_field "r['heading']")" = "NEVER use md5" ]
   [ "$(rule_field "r['sessions_loaded']")" = "0" ]
   [ "$(rule_field "r['sessions_not_loaded']")" = "0" ]
+  [ "$(rule_field "r['active_sessions_loaded']")" = "0" ]
+  [ "$(rule_field "r['active_sessions_not_loaded']")" = "0" ]
   [ "$(rule_field "r['first_loaded']")" = "None" ]
   [ "$(rule_field "r['last_loaded']")" = "None" ]
   [ "$(rule_field "r['corrections_per_session_loaded']")" = "None" ]

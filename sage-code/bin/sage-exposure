@@ -30,6 +30,7 @@ for path in glob.glob(os.path.join(sage_dir, "events", "session-*.jsonl")):
     session = {
         "session_id":  os.path.basename(path)[len("session-"):-len(".jsonl")],
         "start":       None,
+        "active":      False,
         "loads":       {},   # rule_id -> list of rule_loaded events
         "corrections": [],
         "failed":      [],
@@ -41,6 +42,10 @@ for path in glob.glob(os.path.join(sage_dir, "events", "session-*.jsonl")):
             except json.JSONDecodeError:
                 continue
             kind = event.get("type")
+            # A session with no activity cannot load a path-scoped rule, so it
+            # says nothing about the rule. Only active sessions are compared.
+            if kind in ("tool_outcome", "correction", "positive_signal"):
+                session["active"] = True
             if kind == "session_start":
                 session["start"] = event.get("ts", "")
             elif kind == "rule_loaded" and event.get("rule_id"):
@@ -56,9 +61,10 @@ for path in glob.glob(os.path.join(sage_dir, "events", "session-*.jsonl")):
 sessions.sort(key=lambda s: (s["start"], s["session_id"]))
 
 def per_session(group, key):
-    if not group:
+    active = [s for s in group if s["active"]]
+    if not active:
         return None
-    return round(sum(len(s[key]) for s in group) / len(group), 2)
+    return round(sum(len(s[key]) for s in active) / len(active), 2)
 
 # ── Read the published rule files ─────────────────────────────────────────
 # The key of a rule is the file name with no .md: the script that writes the
@@ -97,6 +103,8 @@ for rule_id in sorted({rule_id for s in sessions for rule_id in s["loads"]}):
         "published":           rule_id in published,
         "sessions_loaded":     len(loaded),
         "sessions_not_loaded": len(not_loaded),
+        "active_sessions_loaded":     sum(1 for s in loaded if s["active"]),
+        "active_sessions_not_loaded": sum(1 for s in not_loaded if s["active"]),
         "first_loaded":        stamps[0],
         "last_loaded":         stamps[-1],
         "always_loaded":       all(e.get("load_reason") == "session_start" for e in events),
@@ -125,6 +133,8 @@ for rule_id in sorted(published):
         "published":           True,
         "sessions_loaded":     0,
         "sessions_not_loaded": 0,
+        "active_sessions_loaded":     0,
+        "active_sessions_not_loaded": 0,
         "first_loaded":        None,
         "last_loaded":         None,
         # A rule with no paths frontmatter loads in each session
@@ -141,11 +151,28 @@ with_load    = [s for s in sessions if s["loads"]]
 exposure_since = with_load[0]["start"] if with_load else None
 
 exposure = {
-    "generated":       datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
-    "sessions_total":  len(sessions),
-    "exposure_since":  exposure_since,
-    "rules":           rules,
+    "generated":         datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+    "sessions_total":    len(sessions),
+    "sessions_inactive": sum(1 for s in sessions if not s["active"]),
+    "exposure_since":    exposure_since,
+    "rules":             rules,
 }
+
+# ── Keep the derived file out of git ──────────────────────────────────────
+# It holds prompt excerpts and failed commands. sage-init writes the line for
+# a new project; an older project needs it too.
+IGNORE_LINE = "meta/exposure.json"
+gitignore   = os.path.join(sage_dir, ".gitignore")
+text = ""
+if os.path.isfile(gitignore):
+    try:
+        with open(gitignore, encoding="utf-8") as f:
+            text = f.read()
+    except (OSError, UnicodeDecodeError):
+        text = None
+if text is not None and IGNORE_LINE not in text.splitlines():
+    with open(gitignore, "a", encoding="utf-8") as f:
+        f.write(("" if not text or text.endswith("\n") else "\n") + IGNORE_LINE + "\n")
 
 os.makedirs(os.path.join(sage_dir, "meta"), exist_ok=True)
 with open(os.path.join(sage_dir, "meta", "exposure.json"), "w", encoding="utf-8") as f:
