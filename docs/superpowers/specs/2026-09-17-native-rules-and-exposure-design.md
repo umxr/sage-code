@@ -84,7 +84,8 @@ Rules for the field:
 - The reflector fills `Paths` from the `file_path` values of the tool events near the correction or failure. Event file paths are absolute. The reflector makes them relative with the `cwd` value of the `session_start` event.
 - The reflector prefers a directory pattern (`src/auth/**`) to a single file. It uses at most 5 patterns.
 - A heuristic that is not specific to files (for example a commit message convention) has no `Paths` field. It loads in each session.
-- When the reflector merges a new observation into an existing entry, it adds new patterns to `Paths`. It does not remove patterns.
+- When the reflector merges a new observation into an existing entry, it adds new patterns to `Paths`. A merge never makes the scope narrower. If the list would have more than 5 patterns, the reflector replaces patterns with one wider pattern that covers them (for example, `src/auth/login.ts` and `src/auth/token.ts` become `src/auth/**`). The curator obeys the same limit when it merges duplicate entries.
+- If one of two merged entries has no `Paths` field, the merged entry has no `Paths` field. It applies to all files.
 
 ## `bin/sage-publish-rules`
 
@@ -136,7 +137,7 @@ The curator of 0.2.0 wrote a managed section into `CLAUDE.md`. The publish scrip
 
 - It looks in `CLAUDE.md` and `.claude/CLAUDE.md` in the project root.
 - It removes the text from the `## Sage Learnings` heading to the `<!-- End sage-code managed section -->` marker, only if the start marker (`<!-- Auto-managed by sage-code plugin.`) and the end marker are both there.
-- It changes no other text. If the markers are not both there, it changes nothing.
+- It changes no other text, except the blank lines directly next to the removed section (so that no run of blank lines stays there). If the markers are not both there, it changes nothing.
 
 The knowledge-curator agent loses its task "Update CLAUDE.md".
 

@@ -10,6 +10,15 @@
 
 **Spec:** `docs/superpowers/specs/2026-09-17-native-rules-and-exposure-design.md`
 
+## Execution notes (added after execution, 2026-09-17)
+
+The plan was executed with subagent-driven development. The task reviews found four points that the plan text below does not show. The committed code is correct; the code blocks below are the text as it was at the start.
+
+1. **Task 1, `CLAUDE.md` cleanup (commit `1f669e3`).** The plan code normalized blank lines in the full `CLAUDE.md` file, against the spec ("It changes no other text"). The committed script changes only the removed section and the blank lines directly next to it. One test was added ("removing the managed section changes no other text in CLAUDE.md"). Thus each test total below is 1 too low: the real totals are 102 after Task 1, 111 after Task 2, 115 after Task 3, and 126 after Task 4.
+2. **Task 5, `Paths` limit at merge time (commit `8450da3`).** The plan text for the reflector (Step 4, duplicate case) and the curator (Deduplicate) did not repeat the limit of 5 patterns. The committed prompts keep at most 5 patterns, replace patterns with one wider pattern when necessary, never make the scope narrower, and give a merged entry no `Paths` field when one of the merged entries has none. The spec has the same wording now.
+3. **Task 6, two stale README sentences (commit `479db9a`).** The plan did not list "How it works" item 1 in the root `README.md` and the "Replays" and "Self-evaluates" bullets in the plugin `README.md`. They are corrected.
+4. **Commit messages.** The Task 4 implementer put the `Co-Authored-By` trailer in the subject line; the message was amended before the review (`65f1488`). The Task 6 commits have the trailer `Claude Sonnet 5`, because a Sonnet 5 subagent wrote them.
+
 ## Global Constraints
 
 - Branch: `feat/native-rules-and-exposure` (it exists; the spec is committed on it). Do all work on this branch.
