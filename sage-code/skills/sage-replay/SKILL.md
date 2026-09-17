@@ -26,7 +26,7 @@ Claude Code loads the learned rules itself, from `.claude/rules/sage/`. This ski
 
 ## Phase 2: Publish
 
-If a reflector ran, run this command to make the rule files agree with the knowledge files:
+Always run this command, even when no reflector ran. It makes the rule files agree with the knowledge files, and it publishes existing knowledge after an upgrade. The script is idempotent:
 
 ```bash
 sage-publish-rules "${CLAUDE_PROJECT_DIR}"

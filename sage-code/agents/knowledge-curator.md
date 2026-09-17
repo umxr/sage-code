@@ -37,11 +37,15 @@ If any knowledge file exceeds this limit:
 
 ### 4. Prune Stale Entries
 Read `.sage/meta/config.json` for `stale_days` (default: 30).
-Read `.sage/meta/exposure.json` if it exists. The rule ID of an entry is `{category}-{slugified-heading}`; `rules[<rule ID>].last_loaded` is the last time Claude Code loaded the rule. A rule that is not in the file never loaded.
+Read `.sage/meta/exposure.json` if it exists. To find the entry of a knowledge entry, look in `rules` for the entry whose `heading` is the heading of the knowledge entry and whose key starts with the category of the knowledge file (`pitfall-`, `strategy-`, `preference-`, `architecture-`, `convention-`). Never compute an ID from a heading. `last_loaded` is the last time Claude Code loaded the rule.
 
-An entry is stale only when the two conditions are true:
+First, read `exposure_since` from `exposure.json`. If the file does not exist, or `exposure_since` is `null`, or `exposure_since` is more recent than `stale_days` ago: **do not prune any entry for staleness** in this run. There is not sufficient exposure history on this machine. This is a new install, an upgrade, or a new clone: the event logs are personal and are not in git.
+
+Otherwise, a published entry (it has a match in `rules`) is stale only when the two conditions are true:
 1. "Last seen" is older than `stale_days` ago, AND
-2. `last_loaded` is older than `stale_days` ago, or the rule never loaded.
+2. `last_loaded` is `null`, or `last_loaded` is older than `stale_days` ago.
+
+An entry with no match in `rules` is not published, so it has no load history. For it, use "Last seen" only.
 
 A rule that still loads and causes no new corrections is a rule that works. Do not prune it.
 Archive stale entries to `.sage/meta/archive.md` with reason "stale".

@@ -20,7 +20,9 @@ from datetime import datetime, timezone
 MAX_RECENT_SESSIONS = 10
 MAX_EXCERPTS        = 5
 
-sage_dir = os.path.join(os.environ["_SAGE_PROJECT_DIR"], ".sage")
+project   = os.environ["_SAGE_PROJECT_DIR"]
+sage_dir  = os.path.join(project, ".sage")
+rules_dir = os.path.join(project, ".claude", "rules", "sage")
 
 # ── Read each session log ─────────────────────────────────────────────────
 sessions = []
@@ -32,7 +34,7 @@ for path in glob.glob(os.path.join(sage_dir, "events", "session-*.jsonl")):
         "corrections": [],
         "failed":      [],
     }
-    with open(path) as f:
+    with open(path, encoding="utf-8") as f:
         for line in f:
             try:
                 event = json.loads(line)
@@ -58,6 +60,28 @@ def per_session(group, key):
         return None
     return round(sum(len(s[key]) for s in group) / len(group), 2)
 
+# ── Read the published rule files ─────────────────────────────────────────
+# The key of a rule is the file name with no .md: the script that writes the
+# file owns the ID. Nothing computes an ID from a heading.
+published = {}
+for path in sorted(glob.glob(os.path.join(rules_dir, "*.md"))):
+    if not os.path.isfile(path):
+        continue
+    heading, has_frontmatter = None, False
+    try:
+        with open(path, encoding="utf-8") as f:
+            for number, line in enumerate(f):
+                if number == 0 and line.startswith("---"):
+                    has_frontmatter = True
+                if heading is None and line.startswith("# "):
+                    heading = line[2:].strip()
+    except (OSError, UnicodeDecodeError):
+        continue
+    published[os.path.basename(path)[:-len(".md")]] = {
+        "heading":         heading,
+        "has_frontmatter": has_frontmatter,
+    }
+
 # ── Aggregate for each rule ───────────────────────────────────────────────
 rules = {}
 for rule_id in sorted({rule_id for s in sessions for rule_id in s["loads"]}):
@@ -69,6 +93,8 @@ for rule_id in sorted({rule_id for s in sessions for rule_id in s["loads"]}):
     stamps     = sorted(e.get("ts", "") for e in events)
 
     rules[rule_id] = {
+        "heading":             published.get(rule_id, {}).get("heading"),
+        "published":           rule_id in published,
         "sessions_loaded":     len(loaded),
         "sessions_not_loaded": len(not_loaded),
         "first_loaded":        stamps[0],
@@ -89,14 +115,40 @@ for rule_id in sorted({rule_id for s in sessions for rule_id in s["loads"]}):
         ],
     }
 
+# ── A published rule with no load event still gets an entry ───────────────
+# Without it the meta-evaluator cannot tell "not published" from "not loaded".
+for rule_id in sorted(published):
+    if rule_id in rules:
+        continue
+    rules[rule_id] = {
+        "heading":             published[rule_id]["heading"],
+        "published":           True,
+        "sessions_loaded":     0,
+        "sessions_not_loaded": 0,
+        "first_loaded":        None,
+        "last_loaded":         None,
+        # A rule with no paths frontmatter loads in each session
+        "always_loaded":       not published[rule_id]["has_frontmatter"],
+        "corrections_per_session_loaded":     None,
+        "corrections_per_session_not_loaded": None,
+        "errors_per_session_loaded":          None,
+        "errors_per_session_not_loaded":      None,
+        "recent_loaded_sessions": [],
+    }
+
+# The oldest complete session that loaded a rule: before it there is no history
+with_load    = [s for s in sessions if s["loads"]]
+exposure_since = with_load[0]["start"] if with_load else None
+
 exposure = {
-    "generated":      datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
-    "sessions_total": len(sessions),
-    "rules":          rules,
+    "generated":       datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+    "sessions_total":  len(sessions),
+    "exposure_since":  exposure_since,
+    "rules":           rules,
 }
 
 os.makedirs(os.path.join(sage_dir, "meta"), exist_ok=True)
-with open(os.path.join(sage_dir, "meta", "exposure.json"), "w") as f:
+with open(os.path.join(sage_dir, "meta", "exposure.json"), "w", encoding="utf-8") as f:
     json.dump(exposure, f, indent=2)
     f.write("\n")
 

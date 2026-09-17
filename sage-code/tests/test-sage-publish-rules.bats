@@ -106,6 +106,24 @@ PY
   grep -q '^Second\.$' "$RULES_DIR/pitfall-never-use-md5-2.md"
 }
 
+@test "a long heading gives a slug of at most 60 characters with no trailing dash" {
+  add_entry pitfalls "NEVER use md5 for password hashing in the auth layer always x" low "Long."
+  "$PUBLISH" "$TEST_DIR"
+  [ -f "$RULES_DIR/pitfall-never-use-md5-for-password-hashing-in-the-auth-layer-always.md" ]
+  SLUG=$(ls "$RULES_DIR" | sed 's/^pitfall-//; s/\.md$//')
+  [ "${#SLUG}" -le 60 ]
+  [ "${SLUG%-}" = "$SLUG" ]
+}
+
+@test "two long headings equal in their first 60 slug characters get distinct files" {
+  add_entry pitfalls "NEVER use md5 for password hashing in the authentication layer of the app" low "First."
+  add_entry pitfalls "NEVER use md5 for password hashing in the authentication layer, ever" low "Second."
+  "$PUBLISH" "$TEST_DIR"
+  BASE="pitfall-never-use-md5-for-password-hashing-in-the-authentication-lay"
+  grep -q '^First\.$'  "$RULES_DIR/$BASE.md"
+  grep -q '^Second\.$' "$RULES_DIR/$BASE-2.md"
+}
+
 @test "file of a pruned entry is deleted, files outside sage/ are kept" {
   add_entry pitfalls "NEVER use md5" low "Use bcrypt."
   "$PUBLISH" "$TEST_DIR"
