@@ -143,6 +143,22 @@ print(' '.join(sorted(json.loads(l)['type'] for l in open('$LOG'))))
   [ "$AFTER" -gt "$BEFORE" ]
 }
 
+@test "on-session-start captures the session when config.json is damaged" {
+  init_sage
+  SESSION_ID="test-session-006"
+  CONFIG="$TEST_DIR/.sage/meta/config.json"
+  printf '<<<<<<< HEAD\n{"stale_days": 30}\n=======\n{"stale_days": 60}\n>>>>>>> other\n' > "$CONFIG"
+  cp "$CONFIG" "$TEST_DIR/config.before"
+  PAYLOAD=$(session_start_payload)
+  run bash -c "echo '$PAYLOAD' | SAGE_PROJECT_DIR='$TEST_DIR' bash '$HOOK'"
+  [ "$status" -eq 0 ]
+  [ -z "$output" ]
+  LOG="$TEST_DIR/.sage/events/session-${SESSION_ID}.jsonl"
+  TYPE=$(python3 -c "import json; print(json.loads(open('$LOG').readline())['type'])")
+  [ "$TYPE" = "session_start" ]
+  cmp "$CONFIG" "$TEST_DIR/config.before"
+}
+
 @test "on-session-start handles non-git directory gracefully" {
   NON_GIT_DIR=$(mktemp -d)
   SESSION_ID="test-session-004"

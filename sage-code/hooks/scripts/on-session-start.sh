@@ -54,7 +54,7 @@ export _HOOK_RECENT_COMMITS="$RECENT_COMMITS"
 export _HOOK_DIFF_FILES="$DIFF_FILES"
 
 python3 << 'PYEOF'
-import glob, json, os
+import glob, json, os, tempfile
 from datetime import datetime, timezone
 
 env        = os.environ
@@ -72,7 +72,7 @@ def lines(value):
 
 def has_session_start(path):
     try:
-        with open(path) as f:
+        with open(path, encoding="utf-8") as f:
             for line in f:
                 try:
                     if json.loads(line).get("type") == "session_start":
@@ -89,10 +89,7 @@ def has_session_start(path):
 # it when a rule loads at the start of the session.
 is_new_session = not has_session_start(event_log)
 
-config = os.path.join(sage_dir, "meta", "config.json")
-with open(config) as f:
-    cfg = json.load(f)
-
+# The event is written first: a damaged config must not stop event capture
 if is_new_session:
     event = {
         "ts":             datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
@@ -104,13 +101,27 @@ if is_new_session:
         "recent_commits": lines(env.get("_HOOK_RECENT_COMMITS", "")),
         "diff_files":     lines(env.get("_HOOK_DIFF_FILES", "")),
     }
-    with open(event_log, "a") as f:
+    with open(event_log, "a", encoding="utf-8") as f:
         f.write(json.dumps(event) + "\n")
 
+# ── Read the config ───────────────────────────────────────────────────────
+config = os.path.join(sage_dir, "meta", "config.json")
+try:
+    with open(config, encoding="utf-8") as f:
+        cfg = json.load(f)
+    if not isinstance(cfg, dict):
+        cfg = None
+except (OSError, ValueError):
+    cfg = None  # damaged: skip the count, and never overwrite the file
+
+if is_new_session and cfg is not None:
     # ── Increment sessions_since_eval in config.json ──────────────────────
+    # Through a temporary file: a second session never reads a partial config
     cfg["sessions_since_eval"] = cfg.get("sessions_since_eval", 0) + 1
-    with open(config, "w") as f:
+    handle, tmp = tempfile.mkstemp(dir=os.path.dirname(config), suffix=".tmp")
+    with os.fdopen(handle, "w", encoding="utf-8") as f:
         json.dump(cfg, f, indent=2)
+    os.replace(tmp, config)
 
 # ── Tell Claude when there is a task for it ───────────────────────────────
 # Published rules need no notice: Claude Code loads .claude/rules/sage/ itself.
@@ -121,9 +132,9 @@ pending = sum(
     if os.path.basename(path) != own_marker
 )
 
-since_eval = cfg.get("sessions_since_eval", 0)
-interval   = cfg.get("meta_eval_interval_sessions", 10)
-meta_due   = since_eval >= interval
+since_eval = (cfg or {}).get("sessions_since_eval", 0)
+interval   = (cfg or {}).get("meta_eval_interval_sessions", 10)
+meta_due   = cfg is not None and since_eval >= interval
 
 if pending == 0 and not meta_due:
     raise SystemExit(0)
