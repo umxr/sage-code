@@ -13,6 +13,18 @@
         ]
       }
     ],
+    "InstructionsLoaded": [
+      {
+        "matcher": "session_start|path_glob_match|nested_traversal|include",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash",
+            "args": ["${CLAUDE_PLUGIN_ROOT}/hooks/scripts/on-instructions-loaded.sh"]
+          }
+        ]
+      }
+    ],
     "PostToolUse": [
       {
         "hooks": [

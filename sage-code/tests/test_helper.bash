@@ -85,3 +85,13 @@ print(json.dumps({
     "is_interrupt": False,
 }))' "$1" "${2:-$_EMPTY_JSON}" "${3:-Exit code 1}")"
 }
+
+# instructions_loaded_payload <file_path> [load_reason] [trigger_file_path]
+instructions_loaded_payload() {
+  _payload InstructionsLoaded "$(python3 -c '
+import json, sys
+data = {"file_path": sys.argv[1], "memory_type": "Project", "load_reason": sys.argv[2]}
+if sys.argv[3]:
+    data["trigger_file_path"] = sys.argv[3]
+print(json.dumps(data))' "$1" "${2:-session_start}" "${3:-}")"
+}
