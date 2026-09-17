@@ -64,15 +64,53 @@ print(out['additionalContext'])
   [[ "$CONTEXT" == *"sage-code:sage-replay"* ]]
 }
 
-@test "on-session-start returns additionalContext when heuristics exist" {
+@test "on-session-start is silent when heuristics exist but Claude has no task" {
   init_sage
-  printf '\n### ALWAYS use const\n- **Confidence:** low (1 observation)\n' >> "$TEST_DIR/.sage/knowledge/conventions.md"
+  printf '\n### ALWAYS use const\n- **Confidence:** low (1 observation)\n- **Rule:** Use const.\n' >> "$TEST_DIR/.sage/knowledge/conventions.md"
+  SESSION_ID="test-session-002"
+  OUTPUT=$(session_start_payload | SAGE_PROJECT_DIR="$TEST_DIR" bash "$HOOK")
+  [ -z "$OUTPUT" ]
+}
+
+@test "on-session-start does not count the marker of its own session as pending" {
+  init_sage
+  SESSION_ID="test-session-002"
+  touch "$TEST_DIR/.sage/events/session-${SESSION_ID}.unprocessed"
+  OUTPUT=$(session_start_payload resume | SAGE_PROJECT_DIR="$TEST_DIR" bash "$HOOK")
+  [ -z "$OUTPUT" ]
+}
+
+@test "on-session-start returns additionalContext when meta-evaluation is due" {
+  init_sage
+  python3 - "$TEST_DIR/.sage/meta/config.json" <<'PY2'
+import json, sys
+cfg = json.load(open(sys.argv[1]))
+cfg["sessions_since_eval"] = 9
+cfg["meta_eval_interval_sessions"] = 10
+json.dump(cfg, open(sys.argv[1], "w"), indent=2)
+PY2
   SESSION_ID="test-session-002"
   CONTEXT=$(session_start_payload | SAGE_PROJECT_DIR="$TEST_DIR" bash "$HOOK" | python3 -c "
 import sys, json
 print(json.load(sys.stdin)['hookSpecificOutput']['additionalContext'])
 ")
-  [[ "$CONTEXT" == *"1 learned heuristic(s)"* ]]
+  [[ "$CONTEXT" == *"Meta-evaluation is due: 10 sessions"* ]]
+  [[ "$CONTEXT" == *"sage-code:sage-meta"* ]]
+}
+
+@test "on-session-start writes session_start when a rule_loaded event came first" {
+  init_sage
+  SESSION_ID="test-session-005"
+  LOG="$TEST_DIR/.sage/events/session-${SESSION_ID}.jsonl"
+  echo '{"ts":"2026-09-17T10:00:00Z","type":"rule_loaded","rule_id":"pitfall-x","load_reason":"session_start","trigger_file":""}' > "$LOG"
+  session_start_payload | SAGE_PROJECT_DIR="$TEST_DIR" bash "$HOOK" > /dev/null
+  TYPES=$(python3 -c "
+import json
+print(' '.join(sorted(json.loads(l)['type'] for l in open('$LOG'))))
+")
+  [ "$TYPES" = "rule_loaded session_start" ]
+  COUNT=$(python3 -c "import json; print(json.load(open('$TEST_DIR/.sage/meta/config.json'))['sessions_since_eval'])")
+  [ "$COUNT" -eq 1 ]
 }
 
 @test "on-session-start on resume does not repeat session_start or the session count" {

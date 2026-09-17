@@ -61,6 +61,13 @@ files_modified = len({
     if e.get("type") == "tool_outcome" and e.get("file_path", "")
 })
 
+# Count the different sage rules that Claude Code loaded in this session
+rules_loaded = len({
+    e["rule_id"]
+    for e in events
+    if e.get("type") == "rule_loaded" and e.get("rule_id", "")
+})
+
 # Duration: difference between first and last event timestamp
 def parse_ts(ts_str):
     try:
@@ -88,6 +95,7 @@ session_end_event = {
         "corrections":      corrections,
         "positive_signals": positive_signals,
         "files_modified":   files_modified,
+        "rules_loaded":     rules_loaded,
         "duration_s":       duration_s,
     },
 }

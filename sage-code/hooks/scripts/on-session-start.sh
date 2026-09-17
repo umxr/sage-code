@@ -70,9 +70,28 @@ except json.JSONDecodeError:
 def lines(value):
     return [l.strip() for l in value.splitlines() if l.strip()]
 
+def has_session_start(path):
+    try:
+        with open(path) as f:
+            for line in f:
+                try:
+                    if json.loads(line).get("type") == "session_start":
+                        return True
+                except json.JSONDecodeError:
+                    pass
+    except OSError:
+        pass
+    return False
+
 # SessionStart also fires on resume and compaction with the same session ID.
 # Only the first firing for a session writes session_start and counts it.
-is_new_session = not os.path.isfile(event_log) or os.path.getsize(event_log) == 0
+# The log can exist before this hook runs: the InstructionsLoaded hook creates
+# it when a rule loads at the start of the session.
+is_new_session = not has_session_start(event_log)
+
+config = os.path.join(sage_dir, "meta", "config.json")
+with open(config) as f:
+    cfg = json.load(f)
 
 if is_new_session:
     event = {
@@ -89,34 +108,39 @@ if is_new_session:
         f.write(json.dumps(event) + "\n")
 
     # ── Increment sessions_since_eval in config.json ──────────────────────
-    config = os.path.join(sage_dir, "meta", "config.json")
-    with open(config) as f:
-        cfg = json.load(f)
     cfg["sessions_since_eval"] = cfg.get("sessions_since_eval", 0) + 1
     with open(config, "w") as f:
         json.dump(cfg, f, indent=2)
 
-# ── Tell Claude what there is to replay ───────────────────────────────────
-pending = len(glob.glob(os.path.join(sage_dir, "events", "*.unprocessed")))
+# ── Tell Claude when there is a task for it ───────────────────────────────
+# Published rules need no notice: Claude Code loads .claude/rules/sage/ itself.
+own_marker = f"session-{session_id}.unprocessed"
+pending = sum(
+    1
+    for path in glob.glob(os.path.join(sage_dir, "events", "*.unprocessed"))
+    if os.path.basename(path) != own_marker
+)
 
-heuristics = 0
-for path in glob.glob(os.path.join(sage_dir, "knowledge", "*.md")):
-    with open(path) as f:
-        heuristics += sum(1 for line in f if line.startswith("### "))
+since_eval = cfg.get("sessions_since_eval", 0)
+interval   = cfg.get("meta_eval_interval_sessions", 10)
+meta_due   = since_eval >= interval
 
-# Nothing learned and nothing pending: stay silent and add no context
-if pending == 0 and heuristics == 0:
+if pending == 0 and not meta_due:
     raise SystemExit(0)
 
 # additionalContext is written as statements of fact, not as commands
-context = (
-    "[sage-code] This project has a SAGE-Code knowledge base in .sage/. "
-    f"It holds {heuristics} learned heuristic(s) in .sage/knowledge/, and "
-    f"{pending} earlier session log(s) in .sage/events/ are not reflected on yet. "
-    f"The event log for this session is .sage/events/session-{session_id}.jsonl. "
-    "The sage-code:sage-replay skill processes the pending reflections and "
-    "loads the heuristics that are relevant to the current git context."
-)
+facts = ["[sage-code] This project has a SAGE-Code knowledge base in .sage/."]
+if pending:
+    facts.append(
+        f"{pending} earlier session log(s) in .sage/events/ are not reflected on yet. "
+        "The sage-code:sage-replay skill processes the pending reflections."
+    )
+if meta_due:
+    facts.append(
+        f"Meta-evaluation is due: {since_eval} sessions since the last one "
+        f"(the interval is {interval}). The sage-code:sage-meta skill runs it."
+    )
+context = " ".join(facts)
 
 print(json.dumps({
     "hookSpecificOutput": {
