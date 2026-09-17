@@ -167,6 +167,13 @@ MD
   grep -q '^Keep this too\.$' "$TEST_DIR/CLAUDE.md"
 }
 
+@test "removing the managed section changes no other text in CLAUDE.md" {
+  printf '\n# Project\n\n\n\nThree blank lines above stay.\n\n## Sage Learnings\n<!-- Auto-managed by sage-code plugin. Do not edit below this line. -->\n- old rule\n<!-- End sage-code managed section -->\n\n## After\nKeep.\n\n\n' > "$TEST_DIR/CLAUDE.md"
+  printf '\n# Project\n\n\n\nThree blank lines above stay.\n\n## After\nKeep.\n\n\n' > "$TEST_DIR/CLAUDE.md.expected"
+  "$PUBLISH" "$TEST_DIR"
+  cmp "$TEST_DIR/CLAUDE.md" "$TEST_DIR/CLAUDE.md.expected"
+}
+
 @test "changes nothing in CLAUDE.md when the end marker is absent" {
   printf '# Project\n\n## Sage Learnings\n<!-- Auto-managed by sage-code plugin. Do not edit below this line. -->\n- old rule\n' > "$TEST_DIR/CLAUDE.md"
   cp "$TEST_DIR/CLAUDE.md" "$TEST_DIR/CLAUDE.md.before"

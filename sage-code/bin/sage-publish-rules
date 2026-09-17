@@ -179,12 +179,21 @@ for candidate in ("CLAUDE.md", os.path.join(".claude", "CLAUDE.md")):
             text = f.read()
     except OSError:
         continue
-    cleaned = MANAGED.sub("", text)
-    if cleaned != text:
-        cleaned = re.sub(r"\n{3,}", "\n\n", cleaned).strip("\n")
-        with open(path, "w") as f:
-            f.write(cleaned + "\n" if cleaned else "")
-        print(f"sage-publish-rules: removed the managed section from {candidate}")
+    match = MANAGED.search(text)
+    if not match:
+        continue
+    # Change only the removed span and the blank lines directly next to it
+    before = text[:match.start()].rstrip("\n")
+    after  = text[match.end():].lstrip("\n")
+    if before and after:
+        cleaned = before + "\n\n" + after
+    elif before:
+        cleaned = before + "\n"
+    else:
+        cleaned = after
+    with open(path, "w") as f:
+        f.write(cleaned)
+    print(f"sage-publish-rules: removed the managed section from {candidate}")
 
 print(
     f"sage-publish-rules: {len(wanted)} published "
