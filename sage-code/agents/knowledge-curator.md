@@ -22,7 +22,9 @@ Read all files in `.sage/knowledge/`. Find entries that express the same concept
 - Combine evidence lists
 - Use the highest confidence level
 - Keep the earliest "Added" date and latest "Last seen" date
-- Combine the Paths patterns of the merged entries
+- Combine the Paths patterns of the merged entries and remove duplicates
+- Keep at most 5 patterns: if there are more, replace patterns with one broader pattern that covers them (for example, `src/auth/login.ts` and `src/auth/token.ts` become `src/auth/**`). Never narrow the scope
+- If one of the merged entries has no Paths field, the merged entry has no Paths field: it applies everywhere
 
 ### 2. Consolidate
 Look for entries that are closely related and could be combined into a broader rule. Only consolidate when the combined rule is clearer than the separate ones.
