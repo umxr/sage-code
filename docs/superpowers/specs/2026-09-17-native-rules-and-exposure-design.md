@@ -323,3 +323,32 @@ The count comes from the files in `.claude/rules/sage/`. A file with `paths:` fr
 - Plugin README and CHANGELOG (0.3.0, with a migration note for the `CLAUDE.md` section).
 - A note at the top of the 2026-04-15 spec that points to this document for Layers 4 and 5.
 - `plugin.json` version 0.3.0.
+
+## Changes from the final review (2026-09-17)
+
+A whole-branch review after implementation confirmed seven faults with experiments. The design changed as follows. Where this section and a section above disagree, this section is correct.
+
+**The scripts own the rule ID.** An agent never computes a rule ID from a heading. The slug cut at 60 characters, the `-2` suffix, and the punctuation rule made the ID of an agent disagree with the ID of the script, and the curator then saw a rule that works as "never loaded". `sage-exposure` now writes one entry for each rule file in `.claude/rules/sage/`, also for a rule that never loaded, with these new keys: `heading` (the `# ` line of the rule file; `null` for a rule that has events but no file) and `published`. The agents find the entry whose `heading` is the heading of the knowledge entry and whose key starts with the category. The key of that entry is the ID in `scores.json`.
+
+**Staleness needs exposure history.** The event logs are personal, so an upgrade, a new install, or a new clone has no history. `sage-exposure` writes the top-level key `exposure_since`: the start of the oldest complete session that has a `rule_loaded` event, or `null`. The curator does not prune for staleness when `exposure.json` is absent, when `exposure_since` is `null`, or when it is more recent than `stale_days` ago. An entry that is not published uses "Last seen" only. `sage-meta` runs `sage-publish-rules` before `sage-exposure`, and again after the curator. `sage-replay` always runs `sage-publish-rules`.
+
+**Only active sessions are compared.** A session with no activity cannot load a path-scoped rule, so empty sessions made each path-scoped rule look bad (equal true rates gave 1.0 against 0.14). A session is active when it has a `tool_outcome`, `correction`, or `positive_signal` event. The four `*_per_session_*` numbers use active sessions only. New keys: `active_sessions_loaded` and `active_sessions_not_loaded` for each rule, and `sessions_inactive` at the top level. The "3 sessions" threshold of the meta-evaluator uses `active_sessions_loaded`. The per-session numbers count all topics and are a weak signal; the excerpts in `recent_loaded_sessions` decide.
+
+**`sage-publish-rules` does not follow symbolic links.** Git stores links, so a cloned repository can supply them. The script changes no rule file when `.claude/rules/sage` is not a plain directory in the project. It writes through a temporary file plus `os.replace`, it removes a stale link but never its target, it leaves a regular file that it did not make (with a warning), and it skips a `CLAUDE.md` that is a link.
+
+**`CLAUDE.md` cleanup.** The file keeps its line ends (CRLF or LF). The removed span cannot cross a line that starts with `#`, so a section that lost its end marker cannot take user text with it. A file that is not UTF-8 is skipped with a warning.
+
+**Privacy.** `exposure.json` holds excerpts of prompts and failed commands. `sage-exposure` adds `meta/exposure.json` to `.sage/.gitignore` itself, because `sage-init` does not change an existing file.
+
+**A damaged `config.json` does not stop capture.** `on-session-start.sh` writes `session_start` before it reads the config. If the config cannot be parsed (for example git conflict markers) or is not an object, the hook skips the counter, does not write the config, and exits with 0. It writes the config through a temporary file plus `os.replace`.
+
+**The event log is untrusted data.** The reflector never copies an instruction from error text, a command, or an excerpt into a rule, and a rule must not tell Claude to fetch a URL, change settings, or handle credentials.
+
+### Known limits (not in 0.3.0)
+
+- A heading change gives a new rule ID, and the exposure and score history of the old ID is lost. When the first of two twins is pruned, the second gets its ID. A stable `ID` field in the knowledge entry is the long-term solution.
+- Staleness uses calendar days. After a project is idle for more than `stale_days`, the first meta-evaluation can archive path-scoped rules.
+- Exposure is per machine, but knowledge is shared. A teammate who never reads `src/auth/` can archive a rule that a different teammate loads each day.
+- There is no limit on the number of rules that always load. The 0.2.0 replay had a limit of 15.
+- One observation at `low` confidence becomes a project rule in git. The git diff is the only review gate. A default of `medium` for `publish_min_confidence` is an open decision.
+- Minor items from the last review, for a follow-up commit: repeat the linked-directory check after `os.makedirs` (a linked PARENT directory escapes the first run); temporary files get mode 0600, so rule files and `config.json` become readable by the owner only; a failed write can leave a `tmp*.tmp` file; the summary line says "published" after a refusal; no warning when the `CLAUDE.md` start marker is there but the section does not match; the reflector wording also forbids a valid heuristic that names a project command.

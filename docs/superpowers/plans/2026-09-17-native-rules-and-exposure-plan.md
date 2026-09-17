@@ -19,6 +19,8 @@ The plan was executed with subagent-driven development. The task reviews found f
 3. **Task 6, two stale README sentences (commit `479db9a`).** The plan did not list "How it works" item 1 in the root `README.md` and the "Replays" and "Self-evaluates" bullets in the plugin `README.md`. They are corrected.
 4. **Commit messages.** The Task 4 implementer put the `Co-Authored-By` trailer in the subject line; the message was amended before the review (`65f1488`). The Task 6 commits have the trailer `Claude Sonnet 5`, because a Sonnet 5 subagent wrote them.
 
+5. **Final whole-branch review (commits `4c753df`..`41cc444`).** The review confirmed seven faults with experiments: the rule ID of an agent disagreed with the ID of the script; no exposure history after an upgrade; `sage-publish-rules` followed symbolic links; `exposure.json` was not ignored in upgraded projects; empty sessions biased the comparison; a damaged `config.json` stopped capture (a regression from Task 3 of this plan); the reflector had no rule about untrusted log text. One fix wave corrected all of them, with 23 new tests (149 total). The spec section "Changes from the final review" describes the design as built.
+
 ## Global Constraints
 
 - Branch: `feat/native-rules-and-exposure` (it exists; the spec is committed on it). Do all work on this branch.
