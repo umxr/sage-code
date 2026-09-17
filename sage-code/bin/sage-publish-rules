@@ -196,33 +196,41 @@ if rules_dir_ok:
             warn(f"{name}: not made by sage-code, left in place")
 
 # ── Remove the managed section that sage-code 0.2.0 wrote into CLAUDE.md ──
+# The span never crosses a markdown heading: a section that lost its end
+# marker must not swallow the user text that follows it
 MANAGED = re.compile(
-    r"^## Sage Learnings[ \t]*\n\s*<!-- Auto-managed by sage-code plugin\.[^\n]*-->"
-    r".*?<!-- End sage-code managed section -->[ \t]*\n?",
-    re.S | re.M,
+    r"^## Sage Learnings[ \t]*\r?\n\s*<!-- Auto-managed by sage-code plugin\.[^\n]*-->"
+    r"(?:\r?\n(?!#)[^\n]*)*?"
+    r"\r?\n[ \t]*<!-- End sage-code managed section -->[ \t]*\r?\n?",
+    re.M,
 )
 for candidate in ("CLAUDE.md", os.path.join(".claude", "CLAUDE.md")):
     path = os.path.join(project, candidate)
     if os.path.islink(path):
         continue  # a link can point anywhere; never rewrite through it
     try:
-        with open(path) as f:
+        # newline="" keeps the line ends of the file as they are
+        with open(path, newline="", encoding="utf-8") as f:
             text = f.read()
     except OSError:
+        continue
+    except UnicodeDecodeError:
+        warn(f"{candidate}: not valid UTF-8, left in place")
         continue
     match = MANAGED.search(text)
     if not match:
         continue
     # Change only the removed span and the blank lines directly next to it
-    before = text[:match.start()].rstrip("\n")
-    after  = text[match.end():].lstrip("\n")
+    newline = "\r\n" if "\r\n" in text else "\n"
+    before  = text[:match.start()].rstrip("\r\n")
+    after   = text[match.end():].lstrip("\r\n")
     if before and after:
-        cleaned = before + "\n\n" + after
+        cleaned = before + newline + newline + after
     elif before:
-        cleaned = before + "\n"
+        cleaned = before + newline
     else:
         cleaned = after
-    with open(path, "w") as f:
+    with open(path, "w", newline="", encoding="utf-8") as f:
         f.write(cleaned)
     print(f"sage-publish-rules: removed the managed section from {candidate}")
 

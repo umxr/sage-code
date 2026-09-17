@@ -269,6 +269,46 @@ MD
   cmp "$TEST_DIR/CLAUDE.md" "$TEST_DIR/CLAUDE.md.expected"
 }
 
+@test "removing the managed section keeps the CRLF line ends of CLAUDE.md" {
+  printf '# Project\r\n\r\nKeep this.\r\n\r\n## Sage Learnings\r\n<!-- Auto-managed by sage-code plugin. Do not edit below this line. -->\r\n- old rule\r\n<!-- End sage-code managed section -->\r\n\r\n## After\r\nKeep too.\r\n' > "$TEST_DIR/CLAUDE.md"
+  printf '# Project\r\n\r\nKeep this.\r\n\r\n## After\r\nKeep too.\r\n' > "$TEST_DIR/CLAUDE.md.expected"
+  "$PUBLISH" "$TEST_DIR"
+  cmp "$TEST_DIR/CLAUDE.md" "$TEST_DIR/CLAUDE.md.expected"
+}
+
+@test "a managed section with no end marker does not swallow the user text after it" {
+  cat > "$TEST_DIR/CLAUDE.md" <<'MD'
+# Project
+
+## Sage Learnings
+<!-- Auto-managed by sage-code plugin. Do not edit below this line. -->
+- broken rule
+
+## User section
+User text.
+
+## Sage Learnings
+<!-- Auto-managed by sage-code plugin. Do not edit below this line. -->
+- second rule
+<!-- End sage-code managed section -->
+MD
+  "$PUBLISH" "$TEST_DIR"
+  grep -q '^## User section$' "$TEST_DIR/CLAUDE.md"
+  grep -q '^User text\.$' "$TEST_DIR/CLAUDE.md"
+  grep -q '^- broken rule$' "$TEST_DIR/CLAUDE.md"
+  refute_grep '^- second rule$' "$TEST_DIR/CLAUDE.md"
+  refute_grep 'End sage-code managed section' "$TEST_DIR/CLAUDE.md"
+}
+
+@test "a CLAUDE.md that is not valid UTF-8 is left in place, with a warning" {
+  printf '# Project \xff\xfe\n\n## Sage Learnings\n<!-- Auto-managed by sage-code plugin. Do not edit below this line. -->\n- old rule\n<!-- End sage-code managed section -->\n' > "$TEST_DIR/CLAUDE.md"
+  cp "$TEST_DIR/CLAUDE.md" "$TEST_DIR/CLAUDE.md.before"
+  run "$PUBLISH" "$TEST_DIR"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"CLAUDE.md: not valid UTF-8, left in place"* ]]
+  cmp "$TEST_DIR/CLAUDE.md" "$TEST_DIR/CLAUDE.md.before"
+}
+
 @test "changes nothing in CLAUDE.md when the end marker is absent" {
   printf '# Project\n\n## Sage Learnings\n<!-- Auto-managed by sage-code plugin. Do not edit below this line. -->\n- old rule\n' > "$TEST_DIR/CLAUDE.md"
   cp "$TEST_DIR/CLAUDE.md" "$TEST_DIR/CLAUDE.md.before"
