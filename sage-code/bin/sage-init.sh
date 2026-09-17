@@ -49,7 +49,7 @@ if [ ! -f "$SAGE_DIR/README.md" ]; then
   cat > "$SAGE_DIR/README.md" << 'MKEOF'
 # SAGE-Code Knowledge Base
 
-This directory is managed by the [sage-code](https://github.com/sage-code/sage-code) plugin.
+This directory is managed by the [sage-code](https://github.com/umxr/sage-code) plugin.
 
 **Sessions analyzed:** 0
 **Heuristics learned:** 0

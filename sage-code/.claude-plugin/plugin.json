@@ -1,10 +1,14 @@
 {
   "name": "sage-code",
+  "displayName": "SAGE-Code",
   "description": "Self-Adapting Generative Engine — autonomous learning plugin that captures session events, reflects on outcomes, builds project-scoped knowledge, and self-evaluates its own rules",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "author": {
-    "name": "SAGE-Code Contributors"
+    "name": "umxr",
+    "url": "https://github.com/umxr"
   },
-  "repository": "https://github.com/sage-code/sage-code",
-  "license": "MIT"
+  "homepage": "https://github.com/umxr/sage-code#readme",
+  "repository": "https://github.com/umxr/sage-code",
+  "license": "MIT",
+  "keywords": ["learning", "memory", "hooks", "reflection", "heuristics"]
 }
