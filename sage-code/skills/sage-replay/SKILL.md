@@ -1,6 +1,6 @@
 ---
 name: sage-replay
-description: Initializes SAGE-Code for the current session. Processes pending reflections from previous sessions, then loads relevant project knowledge based on current git context. Runs automatically at session start.
+description: Processes pending SAGE-Code reflections from earlier sessions and publishes the learned rules. Runs at session start when the SessionStart context says that session logs are not reflected on yet.
 user-invocable: false
 allowed-tools:
   - Read
@@ -8,14 +8,12 @@ allowed-tools:
   - Grep
   - Agent
   - Bash(rm .sage/events/*)
+  - Bash(sage-publish-rules *)
 ---
 
-# SAGE-Code Session Initializer
+# SAGE-Code Pending Reflections
 
-You are the SAGE-Code replay system. You run at the start of each session to:
-1. Process any pending reflections from previous sessions
-2. Load relevant project knowledge for the current session
-3. Check if meta-evaluation is due
+Claude Code loads the learned rules itself, from `.claude/rules/sage/`. This skill does not load knowledge. It turns the logs of earlier sessions into knowledge.
 
 ## Phase 1: Deferred Reflection
 
@@ -26,29 +24,17 @@ You are the SAGE-Code replay system. You run at the start of each session to:
    c. If sufficient: dispatch the `sage-code:reflector` subagent with the event log path
    d. Delete the `.unprocessed` marker after processing (`rm .sage/events/<name>.unprocessed`)
 
-## Phase 2: Knowledge Replay
+## Phase 2: Publish
 
-1. Read `.sage/meta/config.json` for `replay_max_heuristics` (default: 15)
-2. Read the current session's event log, `.sage/events/session-${CLAUDE_SESSION_ID}.jsonl`, for git context (branch, diff_files)
-3. Read ALL knowledge files in `.sage/knowledge/`
-4. Score each heuristic:
-   - +3 if Rule text mentions files from diff_files
-   - +2 if category is "pitfall"
-   - +1 if "Last seen" within 7 days
-   - +1 if confidence is "high"
-   - +1 if Rule text matches branch name keywords
-5. Output top N as concise bullets:
+If a reflector ran, run this command to make the rule files agree with the knowledge files:
 
-```
-## Sage Context for This Session
-Based on your current work (branch: {branch}, files: {diff files}):
-- {heading} ({confidence})
-- ...
+```bash
+sage-publish-rules "${CLAUDE_PROJECT_DIR}"
 ```
 
-If empty: "Sage: No prior learnings for this project. I'll begin learning from this session."
+Report the summary line that the command prints.
 
 ## Phase 3: Meta-Evaluation Check
 
-Check if `sessions_since_eval` >= threshold OR `last_meta_eval` is old enough.
-If due: output "[sage] Meta-evaluation due. Run /sage-code:sage-meta to evaluate heuristic effectiveness."
+Read `.sage/meta/config.json`. If `sessions_since_eval` >= `meta_eval_interval_sessions`, output:
+"[sage] Meta-evaluation due. Run /sage-code:sage-meta to evaluate heuristic effectiveness."

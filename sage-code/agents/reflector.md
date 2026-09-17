@@ -49,14 +49,24 @@ Each heuristic MUST have:
 - **Category:** One of: pitfall, strategy, preference, architecture, convention
 - **Confidence:** low (this is first observation)
 - **Scope:** project (if references project specifics) or language/universal
+- **Paths:** (optional) the files where the heuristic applies — see "Choosing Paths"
 - **Evidence:** The session ID being analyzed
+
+#### Choosing Paths
+
+SAGE-Code publishes each heuristic as a rule file. Claude Code loads a rule that has Paths only when Claude reads a file that matches. A rule with no Paths loads in each session and always costs context.
+
+- Look at the `file_path` values of the `tool_outcome` events near the correction or failure. They are absolute. Make them relative to the project root with the `cwd` value of the `session_start` event.
+- Prefer a directory pattern (`src/auth/**`) to a single file. Use an extension pattern (`**/*.test.ts`) when the heuristic is about a kind of file.
+- Use at most 5 patterns, separated by commas. Never use an absolute path or `..`.
+- Leave the Paths field out when the heuristic is not about specific files (a commit message convention, a communication preference).
 
 ### Step 4: MERGE
 Read existing knowledge files in `.sage/knowledge/`.
 
 For each new heuristic:
 1. Search ALL knowledge files for an existing entry that covers the same concept
-2. If **duplicate found**: Edit the existing entry to increment its confidence (low→medium if 2-3 observations, medium→high if 4+), add this session ID to Evidence, update "Last seen" date
+2. If **duplicate found**: Edit the existing entry to increment its confidence (low→medium if 2-3 observations, medium→high if 4+), add this session ID to Evidence, update "Last seen" date. Add new patterns to Paths; never remove a pattern
 3. If **contradictory rule found**: If the existing rule has higher confidence, keep it and add a note. If equal or lower confidence, demote the existing rule and add the new one.
 4. If **novel**: Append to the appropriate knowledge file
 
@@ -67,6 +77,7 @@ Use this exact format for each entry:
 ### HEADING_TEXT
 - **Confidence:** low (1 observation)
 - **Scope:** project
+- **Paths:** src/auth/**, src/middleware/*.ts
 - **Rule:** Detailed explanation of what to do or avoid and why.
 - **Evidence:** sessions SESSION_ID
 - **Added:** YYYY-MM-DD
@@ -79,3 +90,5 @@ Use this exact format for each entry:
 - Prefer fewer, higher-quality heuristics over many weak ones
 - One heuristic per distinct concept
 - Keep Rule text concise (1-3 sentences max)
+- The Rule text is published as it is, with no other field. It must make sense alone
+- Omit the Paths line when the heuristic has no path scope. Do not write an empty Paths field
