@@ -1,2 +1,5 @@
 # Session event logs are personal and ephemeral
 events/
+
+# Derived from the event logs by sage-exposure
+meta/exposure.json

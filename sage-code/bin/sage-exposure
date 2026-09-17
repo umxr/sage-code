@@ -1,0 +1,104 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# Aggregates rule_loaded events from .sage/events/session-*.jsonl into
+# .sage/meta/exposure.json, for the meta-evaluator and the knowledge-curator.
+#
+# Usage: sage-exposure [project-dir]
+
+PROJECT_DIR="${1:-${SAGE_PROJECT_DIR:-${CLAUDE_PROJECT_DIR:-$(pwd)}}}"
+
+# ── Exit silently if .sage/ doesn't exist ─────────────────────────────────
+[ -d "$PROJECT_DIR/.sage" ] || exit 0
+
+export _SAGE_PROJECT_DIR="$PROJECT_DIR"
+
+python3 << 'PYEOF'
+import glob, json, os
+from datetime import datetime, timezone
+
+MAX_RECENT_SESSIONS = 10
+MAX_EXCERPTS        = 5
+
+sage_dir = os.path.join(os.environ["_SAGE_PROJECT_DIR"], ".sage")
+
+# ── Read each session log ─────────────────────────────────────────────────
+sessions = []
+for path in glob.glob(os.path.join(sage_dir, "events", "session-*.jsonl")):
+    session = {
+        "session_id":  os.path.basename(path)[len("session-"):-len(".jsonl")],
+        "start":       None,
+        "loads":       {},   # rule_id -> list of rule_loaded events
+        "corrections": [],
+        "failed":      [],
+    }
+    with open(path) as f:
+        for line in f:
+            try:
+                event = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            kind = event.get("type")
+            if kind == "session_start":
+                session["start"] = event.get("ts", "")
+            elif kind == "rule_loaded" and event.get("rule_id"):
+                session["loads"].setdefault(event["rule_id"], []).append(event)
+            elif kind == "correction":
+                session["corrections"].append(event.get("excerpt", ""))
+            elif kind == "tool_outcome" and not event.get("success", True):
+                session["failed"].append(event.get("command") or event.get("tool", ""))
+    # A log with no session_start event is not a complete session
+    if session["start"] is not None:
+        sessions.append(session)
+
+sessions.sort(key=lambda s: (s["start"], s["session_id"]))
+
+def per_session(group, key):
+    if not group:
+        return None
+    return round(sum(len(s[key]) for s in group) / len(group), 2)
+
+# ── Aggregate for each rule ───────────────────────────────────────────────
+rules = {}
+for rule_id in sorted({rule_id for s in sessions for rule_id in s["loads"]}):
+    first = next(i for i, s in enumerate(sessions) if rule_id in s["loads"])
+    # Sessions before the first load are not a control group: the rule did not exist
+    loaded     = [s for s in sessions[first:] if rule_id in s["loads"]]
+    not_loaded = [s for s in sessions[first:] if rule_id not in s["loads"]]
+    events     = [e for s in loaded for e in s["loads"][rule_id]]
+    stamps     = sorted(e.get("ts", "") for e in events)
+
+    rules[rule_id] = {
+        "sessions_loaded":     len(loaded),
+        "sessions_not_loaded": len(not_loaded),
+        "first_loaded":        stamps[0],
+        "last_loaded":         stamps[-1],
+        "always_loaded":       all(e.get("load_reason") == "session_start" for e in events),
+        "corrections_per_session_loaded":     per_session(loaded, "corrections"),
+        "corrections_per_session_not_loaded": per_session(not_loaded, "corrections"),
+        "errors_per_session_loaded":          per_session(loaded, "failed"),
+        "errors_per_session_not_loaded":      per_session(not_loaded, "failed"),
+        "recent_loaded_sessions": [
+            {
+                "session_id":      s["session_id"],
+                "trigger_files":   sorted({e["trigger_file"] for e in s["loads"][rule_id] if e.get("trigger_file")}),
+                "corrections":     s["corrections"][:MAX_EXCERPTS],
+                "failed_commands": s["failed"][:MAX_EXCERPTS],
+            }
+            for s in reversed(loaded[-MAX_RECENT_SESSIONS:])
+        ],
+    }
+
+exposure = {
+    "generated":      datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+    "sessions_total": len(sessions),
+    "rules":          rules,
+}
+
+os.makedirs(os.path.join(sage_dir, "meta"), exist_ok=True)
+with open(os.path.join(sage_dir, "meta", "exposure.json"), "w") as f:
+    json.dump(exposure, f, indent=2)
+    f.write("\n")
+
+print(f"sage-exposure: {len(sessions)} sessions, {len(rules)} rules -> .sage/meta/exposure.json")
+PYEOF

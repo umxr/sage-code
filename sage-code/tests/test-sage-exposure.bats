@@ -1,0 +1,148 @@
+#!/usr/bin/env bats
+
+load test_helper
+
+EXPOSURE=""
+RULE="pitfall-never-use-md5"
+
+setup() {
+  setup_sage_env
+  EXPOSURE="$SCRIPT_DIR/bin/sage-exposure"
+  init_sage
+}
+
+teardown() {
+  teardown_sage_env
+}
+
+# write_session <session id> <day of month> <event>...
+# Each event is one of: start | load:<rule_id>:<load_reason> | correction:<text> | fail:<command>
+write_session() {
+  python3 - "$TEST_DIR/.sage/events/session-$1.jsonl" "$2" "${@:3}" <<'PY'
+import json, sys
+path, day, specs = sys.argv[1], int(sys.argv[2]), sys.argv[3:]
+with open(path, "w") as f:
+    for minute, spec in enumerate(specs):
+        kind, _, rest = spec.partition(":")
+        event = {"ts": f"2026-09-{day:02d}T09:{minute:02d}:00Z"}
+        if kind == "start":
+            event.update(type="session_start", session_id="x")
+        elif kind == "load":
+            rule_id, _, reason = rest.partition(":")
+            event.update(type="rule_loaded", rule_id=rule_id, load_reason=reason,
+                         trigger_file="src/auth/login.ts" if reason == "path_glob_match" else "")
+        elif kind == "correction":
+            event.update(type="correction", signal="negative", excerpt=rest)
+        elif kind == "fail":
+            event.update(type="tool_outcome", tool="Bash", file_path="", command=rest, success=False)
+        f.write(json.dumps(event) + "\n")
+PY
+}
+
+# rule_field <python expression over r, the entry of $RULE, and d, the whole file>
+rule_field() {
+  python3 -c "
+import json
+d = json.load(open('$TEST_DIR/.sage/meta/exposure.json'))
+r = d['rules'].get('$RULE')
+print($1)
+"
+}
+
+@test "counts loaded and not-loaded sessions" {
+  write_session s1 1 start "load:$RULE:path_glob_match"
+  write_session s2 2 start
+  write_session s3 3 start "load:$RULE:path_glob_match"
+  run "$EXPOSURE" "$TEST_DIR"
+  [ "$status" -eq 0 ]
+  [ "$(rule_field "d['sessions_total']")" = "3" ]
+  [ "$(rule_field "r['sessions_loaded']")" = "2" ]
+  [ "$(rule_field "r['sessions_not_loaded']")" = "1" ]
+  [ "$(rule_field "r['first_loaded']")" = "2026-09-01T09:01:00Z" ]
+  [ "$(rule_field "r['last_loaded']")" = "2026-09-03T09:01:00Z" ]
+}
+
+@test "sessions before the first load are not a control group" {
+  write_session s1 1 start "correction:no, before the rule"
+  write_session s2 2 start "load:$RULE:path_glob_match"
+  "$EXPOSURE" "$TEST_DIR"
+  [ "$(rule_field "r['sessions_not_loaded']")" = "0" ]
+  [ "$(rule_field "r['corrections_per_session_not_loaded']")" = "None" ]
+}
+
+@test "computes corrections and errors per session in the two groups" {
+  write_session s1 1 start "load:$RULE:path_glob_match" "fail:npm test"
+  write_session s2 2 start "correction:no, a" "correction:no, b"
+  write_session s3 3 start "load:$RULE:path_glob_match" "correction:no, c"
+  "$EXPOSURE" "$TEST_DIR"
+  [ "$(rule_field "r['corrections_per_session_loaded']")" = "0.5" ]
+  [ "$(rule_field "r['corrections_per_session_not_loaded']")" = "2.0" ]
+  [ "$(rule_field "r['errors_per_session_loaded']")" = "0.5" ]
+  [ "$(rule_field "r['errors_per_session_not_loaded']")" = "0.0" ]
+}
+
+@test "always_loaded is true only when each load was at session start" {
+  write_session s1 1 start "load:$RULE:session_start" "load:convention-x:session_start"
+  write_session s2 2 start "load:$RULE:path_glob_match" "load:convention-x:session_start"
+  "$EXPOSURE" "$TEST_DIR"
+  [ "$(rule_field "r['always_loaded']")" = "False" ]
+  [ "$(rule_field "d['rules']['convention-x']['always_loaded']")" = "True" ]
+}
+
+@test "recent_loaded_sessions has the evidence, most recent first" {
+  write_session s1 1 start "load:$RULE:path_glob_match" "correction:no, old"
+  write_session s2 2 start "load:$RULE:path_glob_match" "correction:no, new" "fail:npm test"
+  "$EXPOSURE" "$TEST_DIR"
+  [ "$(rule_field "r['recent_loaded_sessions'][0]['session_id']")" = "s2" ]
+  [ "$(rule_field "r['recent_loaded_sessions'][0]['corrections']")" = "['no, new']" ]
+  [ "$(rule_field "r['recent_loaded_sessions'][0]['failed_commands']")" = "['npm test']" ]
+  [ "$(rule_field "r['recent_loaded_sessions'][0]['trigger_files']")" = "['src/auth/login.ts']" ]
+  [ "$(rule_field "r['recent_loaded_sessions'][1]['session_id']")" = "s1" ]
+}
+
+@test "recent_loaded_sessions is capped at 10 sessions and 5 excerpts" {
+  for day in 01 02 03 04 05 06 07 08 09 10 11 12; do
+    write_session "s$day" "$day" start "load:$RULE:path_glob_match" \
+      "correction:no, 1" "correction:no, 2" "correction:no, 3" "correction:no, 4" "correction:no, 5" "correction:no, 6"
+  done
+  "$EXPOSURE" "$TEST_DIR"
+  [ "$(rule_field "r['sessions_loaded']")" = "12" ]
+  [ "$(rule_field "len(r['recent_loaded_sessions'])")" = "10" ]
+  [ "$(rule_field "r['recent_loaded_sessions'][0]['session_id']")" = "s12" ]
+  [ "$(rule_field "len(r['recent_loaded_sessions'][0]['corrections'])")" = "5" ]
+}
+
+@test "log with no session_start event is not counted" {
+  write_session s1 1 start "load:$RULE:path_glob_match"
+  write_session s2 2 "load:$RULE:session_start"
+  "$EXPOSURE" "$TEST_DIR"
+  [ "$(rule_field "d['sessions_total']")" = "1" ]
+  [ "$(rule_field "r['sessions_loaded']")" = "1" ]
+}
+
+@test "bad JSON line is skipped" {
+  write_session s1 1 start "load:$RULE:path_glob_match"
+  echo "not json" >> "$TEST_DIR/.sage/events/session-s1.jsonl"
+  run "$EXPOSURE" "$TEST_DIR"
+  [ "$status" -eq 0 ]
+  [ "$(rule_field "r['sessions_loaded']")" = "1" ]
+}
+
+@test "no events gives an empty rules object" {
+  run "$EXPOSURE" "$TEST_DIR"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"0 sessions, 0 rules"* ]]
+  [ "$(rule_field "d['rules']")" = "{}" ]
+}
+
+@test "exits silently when .sage/ directory is missing" {
+  EMPTY_DIR=$(mktemp -d)
+  run "$EXPOSURE" "$EMPTY_DIR"
+  [ "$status" -eq 0 ]
+  [ -z "$output" ]
+  rm -rf "$EMPTY_DIR"
+}
+
+@test "sage-init ignores the derived exposure file in git" {
+  grep -q '^meta/exposure.json$' "$TEST_DIR/.sage/.gitignore"
+}
