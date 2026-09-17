@@ -1,4 +1,5 @@
 ---
+name: knowledge-curator
 description: Organizes, deduplicates, and maintains the SAGE-Code knowledge base. Enforces size limits, merges redundant entries, and updates the project README and CLAUDE.md.
 model: sonnet
 tools:

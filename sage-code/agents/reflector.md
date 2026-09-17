@@ -1,4 +1,5 @@
 ---
+name: reflector
 description: Analyzes session event logs and extracts generalized heuristics into knowledge files. Dispatched by sage-replay when unprocessed session logs are found.
 model: sonnet
 tools:
@@ -22,7 +23,7 @@ You will receive a path to a session event log (`.sage/events/session-<id>.jsonl
 ### Step 1: PARSE
 Read the session event log. Identify:
 - **Corrections** (`type: "correction"`, `signal: "negative"`) — things the user told Claude to do differently
-- **Failures** (`type: "tool_outcome"`, `success: false`) — tools that errored
+- **Failures** (`type: "tool_outcome"`, `success: false`) — tools that errored; the `error` field holds the start of the failure output
 - **Successes** (`type: "positive_signal"`) — things the user praised
 - **Patterns** — repeated tool usage, file paths touched, commands run
 
