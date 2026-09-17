@@ -15,9 +15,11 @@ Thanks for your interest in contributing! Here's how to get started.
 ## Development Setup
 
 No special setup required. The plugin is pure bash + markdown. You need:
-- Bash 4+
+- Bash
 - Python 3 (for JSON parsing in hook scripts)
 - Git
+- [bats-core](https://github.com/bats-core/bats-core) (for the tests)
+- A current version of Claude Code (for `claude plugin validate` and `claude --plugin-dir`; tested with v2.1.274)
 
 ## Project Structure
 
@@ -37,15 +39,21 @@ Every hook script has a corresponding test in `sage-code/tests/`. Follow the exi
 
 1. Create a temp directory
 2. Bootstrap `.sage/` with `sage-init.sh`
-3. Set env vars (`SAGE_PROJECT_DIR`, `CLAUDE_SESSION_ID`)
-4. Run the hook with mock input
+3. Set `SAGE_PROJECT_DIR` to the temp directory
+4. Pipe a hook payload into the script. Use the builders in `test_helper.bash` (`session_start_payload`, `tool_payload`, `tool_failure_payload`, `prompt_payload`, `session_end_payload`). They print the same JSON that Claude Code sends on stdin
 5. Assert on the event log contents
 6. Clean up
 
-Run all tests with:
+Hook scripts must read `session_id` and all other event data from the stdin JSON. Do not read them from environment variables. See the [hooks reference](https://code.claude.com/docs/en/hooks) for the input of each event.
+
+Run all tests, then validate the manifests:
 ```bash
 bash sage-code/tests/run-all.sh
+claude plugin validate . --strict
+claude plugin validate ./sage-code --strict
 ```
+
+To try your change in a real session, run `claude --plugin-dir ./sage-code` in a scratch project.
 
 ## Pull Request Guidelines
 
