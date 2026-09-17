@@ -136,6 +136,83 @@ PY
   [ -f "$TEST_DIR/.claude/rules/team.md" ]
 }
 
+# ── Symbolic links ─────────────────────────────────────────────────────────
+
+@test "a rule file that is a symlink is replaced, the target outside stays" {
+  OUTSIDE=$(mktemp -d)
+  echo "outside content" > "$OUTSIDE/target.md"
+  mkdir -p "$RULES_DIR"
+  ln -s "$OUTSIDE/target.md" "$RULES_DIR/pitfall-never-use-md5.md"
+  add_entry pitfalls "NEVER use md5" low "Use bcrypt."
+  run "$PUBLISH" "$TEST_DIR"
+  [ "$status" -eq 0 ]
+  [ "$(cat "$OUTSIDE/target.md")" = "outside content" ]
+  [ ! -L "$RULES_DIR/pitfall-never-use-md5.md" ]
+  grep -q '^Use bcrypt\.$' "$RULES_DIR/pitfall-never-use-md5.md"
+  rm -rf "$OUTSIDE"
+}
+
+@test "a linked .claude/rules/sage directory is left alone, with a warning" {
+  OUTSIDE=$(mktemp -d)
+  echo "# guide" > "$OUTSIDE/guide.md"
+  mkdir -p "$TEST_DIR/.claude/rules"
+  ln -s "$OUTSIDE" "$TEST_DIR/.claude/rules/sage"
+  add_entry pitfalls "NEVER use md5" low "Use bcrypt."
+  run "$PUBLISH" "$TEST_DIR"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"not a plain directory in the project"* ]]
+  [ -f "$OUTSIDE/guide.md" ]
+  [ "$(ls "$OUTSIDE" | wc -l | tr -d ' ')" -eq 1 ]
+  rm -rf "$OUTSIDE"
+}
+
+@test "a linked .claude/rules/sage directory keeps its files when nothing is published" {
+  OUTSIDE=$(mktemp -d)
+  echo "# guide" > "$OUTSIDE/guide.md"
+  mkdir -p "$TEST_DIR/.claude/rules"
+  ln -s "$OUTSIDE" "$TEST_DIR/.claude/rules/sage"
+  run "$PUBLISH" "$TEST_DIR"
+  [ "$status" -eq 0 ]
+  [ -f "$OUTSIDE/guide.md" ]
+  rm -rf "$OUTSIDE"
+}
+
+@test "a stale symlink in sage/ is removed and its target stays" {
+  OUTSIDE=$(mktemp -d)
+  echo "keep me" > "$OUTSIDE/target.md"
+  add_entry pitfalls "NEVER use md5" low "Use bcrypt."
+  "$PUBLISH" "$TEST_DIR"
+  ln -s "$OUTSIDE/target.md" "$RULES_DIR/old.md"
+  run "$PUBLISH" "$TEST_DIR"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"1 removed"* ]]
+  [ ! -L "$RULES_DIR/old.md" ]
+  [ "$(cat "$OUTSIDE/target.md")" = "keep me" ]
+  rm -rf "$OUTSIDE"
+}
+
+@test "a file in sage/ that sage-code did not make is left in place, with a warning" {
+  add_entry pitfalls "NEVER use md5" low "Use bcrypt."
+  "$PUBLISH" "$TEST_DIR"
+  echo "# my notes" > "$RULES_DIR/notes.md"
+  run "$PUBLISH" "$TEST_DIR"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"notes.md: not made by sage-code, left in place"* ]]
+  [[ "$output" == *"0 removed"* ]]
+  [ -f "$RULES_DIR/notes.md" ]
+}
+
+@test "a CLAUDE.md that is a symlink is not rewritten" {
+  OUTSIDE=$(mktemp -d)
+  printf '# Project\n\n## Sage Learnings\n<!-- Auto-managed by sage-code plugin. Do not edit below this line. -->\n- old rule\n<!-- End sage-code managed section -->\n' > "$OUTSIDE/CLAUDE.md"
+  cp "$OUTSIDE/CLAUDE.md" "$OUTSIDE/before"
+  ln -s "$OUTSIDE/CLAUDE.md" "$TEST_DIR/CLAUDE.md"
+  run "$PUBLISH" "$TEST_DIR"
+  [ "$status" -eq 0 ]
+  cmp "$OUTSIDE/CLAUDE.md" "$OUTSIDE/before"
+  rm -rf "$OUTSIDE"
+}
+
 @test "absolute and parent patterns are dropped" {
   add_entry pitfalls "NEVER use md5" low "Use bcrypt." "/etc/passwd, ../outside/**, src/auth/**"
   "$PUBLISH" "$TEST_DIR"
