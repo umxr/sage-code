@@ -15,13 +15,13 @@ teardown() {
 
 @test "on-session-start creates event log for session ID" {
   SESSION_ID="test-session-001"
-  SAGE_PROJECT_DIR="$TEST_DIR" CLAUDE_SESSION_ID="$SESSION_ID" bash "$HOOK" > /dev/null
+  session_start_payload | SAGE_PROJECT_DIR="$TEST_DIR" bash "$HOOK" > /dev/null
   [ -f "$TEST_DIR/.sage/events/session-${SESSION_ID}.jsonl" ]
 }
 
 @test "on-session-start first event has type session_start" {
   SESSION_ID="test-session-001"
-  SAGE_PROJECT_DIR="$TEST_DIR" CLAUDE_SESSION_ID="$SESSION_ID" bash "$HOOK" > /dev/null
+  session_start_payload | SAGE_PROJECT_DIR="$TEST_DIR" bash "$HOOK" > /dev/null
   EVENT_LOG="$TEST_DIR/.sage/events/session-${SESSION_ID}.jsonl"
   run python3 -c "import sys,json; d=json.loads(open('$EVENT_LOG').readline()); print(d.get('type',''))"
   [ "$status" -eq 0 ]
@@ -30,7 +30,7 @@ teardown() {
 
 @test "on-session-start event contains all required fields" {
   SESSION_ID="test-session-001"
-  SAGE_PROJECT_DIR="$TEST_DIR" CLAUDE_SESSION_ID="$SESSION_ID" bash "$HOOK" > /dev/null
+  session_start_payload | SAGE_PROJECT_DIR="$TEST_DIR" bash "$HOOK" > /dev/null
   EVENT_LOG="$TEST_DIR/.sage/events/session-${SESSION_ID}.jsonl"
   run python3 -c "
 import sys, json
@@ -44,23 +44,62 @@ if missing:
   [ "$status" -eq 0 ]
 }
 
-@test "on-session-start stdout contains systemMessage" {
+@test "on-session-start is silent when there is nothing to replay" {
   SESSION_ID="test-session-002"
-  run bash -c "SAGE_PROJECT_DIR='$TEST_DIR' CLAUDE_SESSION_ID='$SESSION_ID' bash '$HOOK'"
-  [ "$status" -eq 0 ]
-  run python3 -c "import sys,json; d=json.loads('$output'); print('yes' if 'systemMessage' in d else 'no')" <<< "$output"
-  # Use a subshell to capture and test the output directly
-  HAS_SYS_MSG=$(SAGE_PROJECT_DIR="$TEST_DIR" CLAUDE_SESSION_ID="$SESSION_ID" bash "$HOOK" | python3 -c "import sys,json; d=json.load(sys.stdin); print('yes' if 'systemMessage' in d else 'no')")
-  [ "$HAS_SYS_MSG" = "yes" ]
+  OUTPUT=$(session_start_payload | SAGE_PROJECT_DIR="$TEST_DIR" bash "$HOOK")
+  [ -z "$OUTPUT" ]
+}
+
+@test "on-session-start returns additionalContext when a reflection is pending" {
+  init_sage
+  touch "$TEST_DIR/.sage/events/session-earlier.unprocessed"
+  SESSION_ID="test-session-002"
+  CONTEXT=$(session_start_payload | SAGE_PROJECT_DIR="$TEST_DIR" bash "$HOOK" | python3 -c "
+import sys, json
+out = json.load(sys.stdin)['hookSpecificOutput']
+assert out['hookEventName'] == 'SessionStart'
+print(out['additionalContext'])
+")
+  [[ "$CONTEXT" == *"1 earlier session log(s)"* ]]
+  [[ "$CONTEXT" == *"sage-code:sage-replay"* ]]
+}
+
+@test "on-session-start returns additionalContext when heuristics exist" {
+  init_sage
+  printf '\n### ALWAYS use const\n- **Confidence:** low (1 observation)\n' >> "$TEST_DIR/.sage/knowledge/conventions.md"
+  SESSION_ID="test-session-002"
+  CONTEXT=$(session_start_payload | SAGE_PROJECT_DIR="$TEST_DIR" bash "$HOOK" | python3 -c "
+import sys, json
+print(json.load(sys.stdin)['hookSpecificOutput']['additionalContext'])
+")
+  [[ "$CONTEXT" == *"1 learned heuristic(s)"* ]]
+}
+
+@test "on-session-start on resume does not repeat session_start or the session count" {
+  SESSION_ID="test-session-003"
+  session_start_payload startup | SAGE_PROJECT_DIR="$TEST_DIR" bash "$HOOK" > /dev/null
+  session_start_payload resume  | SAGE_PROJECT_DIR="$TEST_DIR" bash "$HOOK" > /dev/null
+  session_start_payload compact | SAGE_PROJECT_DIR="$TEST_DIR" bash "$HOOK" > /dev/null
+
+  LINES=$(wc -l < "$TEST_DIR/.sage/events/session-${SESSION_ID}.jsonl" | tr -d ' ')
+  [ "$LINES" -eq 1 ]
+  COUNT=$(python3 -c "import json; print(json.load(open('$TEST_DIR/.sage/meta/config.json'))['sessions_since_eval'])")
+  [ "$COUNT" -eq 1 ]
+}
+
+@test "on-session-start keeps the session ID safe for use in a file name" {
+  SESSION_ID="../../evil id"
+  session_start_payload | SAGE_PROJECT_DIR="$TEST_DIR" bash "$HOOK" > /dev/null
+  [ -f "$TEST_DIR/.sage/events/session-.._.._evil_id.jsonl" ]
 }
 
 @test "on-session-start increments sessions_since_eval" {
-  SESSION_ID_A="test-session-001"
-  SAGE_PROJECT_DIR="$TEST_DIR" CLAUDE_SESSION_ID="$SESSION_ID_A" bash "$HOOK" > /dev/null
+  SESSION_ID="test-session-001"
+  session_start_payload | SAGE_PROJECT_DIR="$TEST_DIR" bash "$HOOK" > /dev/null
   BEFORE=$(python3 -c "import json; d=json.load(open('$TEST_DIR/.sage/meta/config.json')); print(d['sessions_since_eval'])")
 
-  SESSION_ID_B="test-session-002"
-  SAGE_PROJECT_DIR="$TEST_DIR" CLAUDE_SESSION_ID="$SESSION_ID_B" bash "$HOOK" > /dev/null
+  SESSION_ID="test-session-002"
+  session_start_payload | SAGE_PROJECT_DIR="$TEST_DIR" bash "$HOOK" > /dev/null
   AFTER=$(python3 -c "import json; d=json.load(open('$TEST_DIR/.sage/meta/config.json')); print(d['sessions_since_eval'])")
 
   [ "$AFTER" -gt "$BEFORE" ]
@@ -69,7 +108,9 @@ if missing:
 @test "on-session-start handles non-git directory gracefully" {
   NON_GIT_DIR=$(mktemp -d)
   SESSION_ID="test-session-004"
-  run bash -c "SAGE_PROJECT_DIR='$NON_GIT_DIR' CLAUDE_SESSION_ID='$SESSION_ID' bash '$HOOK' 2>/dev/null | python3 -c 'import sys,json; json.load(sys.stdin)' > /dev/null 2>&1"
-  rm -rf "$NON_GIT_DIR"
+  PAYLOAD=$(session_start_payload)
+  run bash -c "echo '$PAYLOAD' | SAGE_PROJECT_DIR='$NON_GIT_DIR' bash '$HOOK'"
   [ "$status" -eq 0 ]
+  [ -f "$NON_GIT_DIR/.sage/events/session-${SESSION_ID}.jsonl" ]
+  rm -rf "$NON_GIT_DIR"
 }

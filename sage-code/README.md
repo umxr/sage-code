@@ -19,22 +19,18 @@ Everything is fully autonomous — no manual intervention needed.
 
 ## Installation
 
-Enable the plugin in your Claude Code settings:
-
-```json
-{
-  "enabledPlugins": {
-    "sage-code@your-marketplace": true
-  }
-}
+```bash
+/plugin marketplace add umxr/sage-code
+/plugin install sage-code@sage-code-marketplace
 ```
 
 On your first session in any project, SAGE will automatically initialize a `.sage/` directory and begin learning.
 
 ## Commands
 
-- `/sage-status` — View what SAGE has learned about your project
-- `/sage-reflect` — Manually trigger reflection on current session
+- `/sage-code:sage-status` — View what SAGE has learned about your project
+- `/sage-code:sage-reflect` — Manually trigger reflection on current session
+- `/sage-code:sage-meta` — Run meta-evaluation to score and prune heuristics
 
 ## How it works
 

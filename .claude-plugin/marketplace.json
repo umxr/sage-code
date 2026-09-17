@@ -1,5 +1,6 @@
 {
   "name": "sage-code-marketplace",
+  "description": "Marketplace for sage-code, a self-improving learning plugin for Claude Code",
   "owner": {
     "name": "umxr"
   },
@@ -7,8 +8,7 @@
     {
       "name": "sage-code",
       "source": "./sage-code",
-      "description": "Autonomous self-improving learning system for Claude Code — captures session events, reflects on outcomes, builds project-scoped knowledge, and self-evaluates its own rules",
-      "version": "0.1.0"
+      "description": "Autonomous self-improving learning system for Claude Code — captures session events, reflects on outcomes, builds project-scoped knowledge, and self-evaluates its own rules"
     }
   ]
 }

@@ -11,8 +11,8 @@ allowed-tools:
 
 # Meta-Evaluation Orchestrator
 
-1. Dispatch the `meta-evaluator` subagent
-2. After evaluation, dispatch the `knowledge-curator` subagent
+1. Dispatch the `sage-code:meta-evaluator` subagent
+2. After evaluation, dispatch the `sage-code:knowledge-curator` subagent
 3. Report results:
 
 ```

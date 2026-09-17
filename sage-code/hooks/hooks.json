@@ -1,13 +1,14 @@
 {
+  "description": "SAGE-Code capture layer: logs session events to .sage/events/ for later reflection",
   "hooks": {
     "SessionStart": [
       {
         "hooks": [
           {
             "type": "command",
-            "command": "SAGE_PROJECT_DIR=\"$PWD\" CLAUDE_SESSION_ID=\"$CLAUDE_SESSION_ID\" bash \"$CLAUDE_PLUGIN_DIR/hooks/scripts/on-session-start.sh\"",
-            "async": true,
-            "asyncTimeout": 5000
+            "command": "bash",
+            "args": ["${CLAUDE_PLUGIN_ROOT}/hooks/scripts/on-session-start.sh"],
+            "timeout": 10
           }
         ]
       }
@@ -17,9 +18,21 @@
         "hooks": [
           {
             "type": "command",
-            "command": "echo '$TOOL_INPUT' | SAGE_PROJECT_DIR=\"$PWD\" CLAUDE_SESSION_ID=\"$CLAUDE_SESSION_ID\" bash \"$CLAUDE_PLUGIN_DIR/hooks/scripts/on-tool-use.sh\"",
-            "async": true,
-            "asyncTimeout": 3000
+            "command": "bash",
+            "args": ["${CLAUDE_PLUGIN_ROOT}/hooks/scripts/on-tool-use.sh"],
+            "async": true
+          }
+        ]
+      }
+    ],
+    "PostToolUseFailure": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash",
+            "args": ["${CLAUDE_PLUGIN_ROOT}/hooks/scripts/on-tool-use.sh"],
+            "async": true
           }
         ]
       }
@@ -29,21 +42,20 @@
         "hooks": [
           {
             "type": "command",
-            "command": "echo '$USER_INPUT' | SAGE_PROJECT_DIR=\"$PWD\" CLAUDE_SESSION_ID=\"$CLAUDE_SESSION_ID\" bash \"$CLAUDE_PLUGIN_DIR/hooks/scripts/on-correction.sh\"",
-            "async": true,
-            "asyncTimeout": 3000
+            "command": "bash",
+            "args": ["${CLAUDE_PLUGIN_ROOT}/hooks/scripts/on-correction.sh"],
+            "async": true
           }
         ]
       }
     ],
-    "Stop": [
+    "SessionEnd": [
       {
         "hooks": [
           {
             "type": "command",
-            "command": "SAGE_PROJECT_DIR=\"$PWD\" CLAUDE_SESSION_ID=\"$CLAUDE_SESSION_ID\" bash \"$CLAUDE_PLUGIN_DIR/hooks/scripts/on-session-end.sh\"",
-            "async": true,
-            "asyncTimeout": 5000
+            "command": "bash",
+            "args": ["${CLAUDE_PLUGIN_ROOT}/hooks/scripts/on-session-end.sh"]
           }
         ]
       }

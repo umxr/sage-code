@@ -9,7 +9,6 @@ EVENT_LOG=""
 setup() {
   setup_sage_env
   HOOK="$SCRIPT_DIR/hooks/scripts/on-session-end.sh"
-  export CLAUDE_SESSION_ID="$SESSION_ID"
   init_sage
   EVENT_LOG="$TEST_DIR/.sage/events/session-${SESSION_ID}.jsonl"
 
@@ -44,7 +43,7 @@ teardown() {
 }
 
 @test "on-session-end appends a session_end event" {
-  SAGE_PROJECT_DIR="$TEST_DIR" CLAUDE_SESSION_ID="$SESSION_ID" bash "$HOOK"
+  session_end_payload | SAGE_PROJECT_DIR="$TEST_DIR" bash "$HOOK"
   run python3 -c "
 import json
 last = open('$EVENT_LOG').readlines()[-1]
@@ -56,7 +55,7 @@ print(d.get('type',''))
 }
 
 @test "on-session-end summary has correct tools_used count" {
-  SAGE_PROJECT_DIR="$TEST_DIR" CLAUDE_SESSION_ID="$SESSION_ID" bash "$HOOK"
+  session_end_payload | SAGE_PROJECT_DIR="$TEST_DIR" bash "$HOOK"
   run python3 -c "
 import json
 lines = [json.loads(l) for l in open('$EVENT_LOG') if l.strip()]
@@ -68,7 +67,7 @@ print(end.get('summary', {}).get('tools_used', 'MISSING'))
 }
 
 @test "on-session-end summary has correct errors count" {
-  SAGE_PROJECT_DIR="$TEST_DIR" CLAUDE_SESSION_ID="$SESSION_ID" bash "$HOOK"
+  session_end_payload | SAGE_PROJECT_DIR="$TEST_DIR" bash "$HOOK"
   run python3 -c "
 import json
 lines = [json.loads(l) for l in open('$EVENT_LOG') if l.strip()]
@@ -80,7 +79,7 @@ print(end.get('summary', {}).get('errors', 'MISSING'))
 }
 
 @test "on-session-end summary has correct corrections count" {
-  SAGE_PROJECT_DIR="$TEST_DIR" CLAUDE_SESSION_ID="$SESSION_ID" bash "$HOOK"
+  session_end_payload | SAGE_PROJECT_DIR="$TEST_DIR" bash "$HOOK"
   run python3 -c "
 import json
 lines = [json.loads(l) for l in open('$EVENT_LOG') if l.strip()]
@@ -92,7 +91,7 @@ print(end.get('summary', {}).get('corrections', 'MISSING'))
 }
 
 @test "on-session-end summary has correct positive_signals count" {
-  SAGE_PROJECT_DIR="$TEST_DIR" CLAUDE_SESSION_ID="$SESSION_ID" bash "$HOOK"
+  session_end_payload | SAGE_PROJECT_DIR="$TEST_DIR" bash "$HOOK"
   run python3 -c "
 import json
 lines = [json.loads(l) for l in open('$EVENT_LOG') if l.strip()]
@@ -104,7 +103,7 @@ print(end.get('summary', {}).get('positive_signals', 'MISSING'))
 }
 
 @test "on-session-end summary has correct files_modified count" {
-  SAGE_PROJECT_DIR="$TEST_DIR" CLAUDE_SESSION_ID="$SESSION_ID" bash "$HOOK"
+  session_end_payload | SAGE_PROJECT_DIR="$TEST_DIR" bash "$HOOK"
   run python3 -c "
 import json
 lines = [json.loads(l) for l in open('$EVENT_LOG') if l.strip()]
@@ -116,13 +115,13 @@ print(end.get('summary', {}).get('files_modified', 'MISSING'))
 }
 
 @test "on-session-end creates .unprocessed marker file" {
-  SAGE_PROJECT_DIR="$TEST_DIR" CLAUDE_SESSION_ID="$SESSION_ID" bash "$HOOK"
+  session_end_payload | SAGE_PROJECT_DIR="$TEST_DIR" bash "$HOOK"
   MARKER="$TEST_DIR/.sage/events/session-${SESSION_ID}.unprocessed"
   [ -f "$MARKER" ]
 }
 
 @test "on-session-end summary contains non-negative duration_s" {
-  SAGE_PROJECT_DIR="$TEST_DIR" CLAUDE_SESSION_ID="$SESSION_ID" bash "$HOOK"
+  session_end_payload | SAGE_PROJECT_DIR="$TEST_DIR" bash "$HOOK"
   run python3 -c "
 import json
 last = open('$EVENT_LOG').readlines()[-1]
@@ -141,9 +140,21 @@ else:
   [ "$output" = "ok" ]
 }
 
+@test "on-session-end records the reason the session ended" {
+  session_end_payload clear | SAGE_PROJECT_DIR="$TEST_DIR" bash "$HOOK"
+  run python3 -c "
+import json
+d = json.loads(open('$EVENT_LOG').readlines()[-1])
+print(d.get('reason',''))
+"
+  [ "$status" -eq 0 ]
+  [ "$output" = "clear" ]
+}
+
 @test "hook exits silently when .sage/ directory is missing" {
   EMPTY_DIR=$(mktemp -d)
-  run bash -c "SAGE_PROJECT_DIR='$EMPTY_DIR' CLAUDE_SESSION_ID='$SESSION_ID' bash '$HOOK' 2>/dev/null"
+  PAYLOAD=$(session_end_payload)
+  run bash -c "echo '$PAYLOAD' | SAGE_PROJECT_DIR='$EMPTY_DIR' bash '$HOOK' 2>/dev/null"
   rm -rf "$EMPTY_DIR"
   [ "$status" -eq 0 ]
 }
@@ -151,7 +162,9 @@ else:
 @test "hook exits silently when event log is missing" {
   NO_LOG_DIR=$(mktemp -d)
   SAGE_PROJECT_DIR="$NO_LOG_DIR" bash "$SCRIPT_DIR/bin/sage-init.sh"
-  run bash -c "SAGE_PROJECT_DIR='$NO_LOG_DIR' CLAUDE_SESSION_ID='no-log-session' bash '$HOOK' 2>/dev/null"
-  rm -rf "$NO_LOG_DIR"
+  PAYLOAD=$(SESSION_ID="no-log-session" session_end_payload)
+  run bash -c "echo '$PAYLOAD' | SAGE_PROJECT_DIR='$NO_LOG_DIR' bash '$HOOK' 2>/dev/null"
   [ "$status" -eq 0 ]
+  [ ! -f "$NO_LOG_DIR/.sage/events/session-no-log-session.unprocessed" ]
+  rm -rf "$NO_LOG_DIR"
 }

@@ -1,60 +1,56 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# ── Environment ────────────────────────────────────────────────────────────
-SAGE_PROJECT_DIR="${SAGE_PROJECT_DIR:-$(pwd)}"
-SESSION_ID="${CLAUDE_SESSION_ID:-unknown}"
-SAGE_DIR="$SAGE_PROJECT_DIR/.sage"
-EVENT_LOG="$SAGE_DIR/events/session-${SESSION_ID}.jsonl"
+# PostToolUse / PostToolUseFailure hook.
+# Claude Code sends the event as JSON on stdin. PostToolUse fires only for
+# tool calls that succeed; failed calls arrive as PostToolUseFailure.
 
-# ── Exit silently if .sage/ or event log doesn't exist ────────────────────
-[ -d "$SAGE_DIR" ]  || exit 0
-[ -f "$EVENT_LOG" ] || exit 0
+# ── Environment ────────────────────────────────────────────────────────────
+SAGE_PROJECT_DIR="${SAGE_PROJECT_DIR:-${CLAUDE_PROJECT_DIR:-$(pwd)}}"
+SAGE_DIR="$SAGE_PROJECT_DIR/.sage"
+
+# ── Exit silently if .sage/ doesn't exist ─────────────────────────────────
+[ -d "$SAGE_DIR" ] || exit 0
 
 # ── Read stdin and pass via env to avoid heredoc quoting issues ────────────
 export _HOOK_INPUT
 _HOOK_INPUT=$(cat)
-export _HOOK_EVENT_LOG="$EVENT_LOG"
+export _HOOK_SAGE_DIR="$SAGE_DIR"
 
 python3 << 'PYEOF'
 import json, re, sys, os
 from datetime import datetime, timezone
 
-raw        = os.environ.get("_HOOK_INPUT", "")
-event_log  = os.environ.get("_HOOK_EVENT_LOG", "")
+raw      = os.environ.get("_HOOK_INPUT", "")
+sage_dir = os.environ.get("_HOOK_SAGE_DIR", "")
 
 try:
     data = json.loads(raw)
 except json.JSONDecodeError:
     sys.exit(0)
 
-tool_name   = data.get("tool_name", "")
-tool_input  = data.get("tool_input", {})
-tool_result = data.get("tool_result", "")
+# Session ID comes from the hook input; keep it safe for use in a file name
+session_id = re.sub(r"[^A-Za-z0-9._-]", "_", str(data.get("session_id") or "unknown"))
+event_log  = os.path.join(sage_dir, "events", f"session-{session_id}.jsonl")
 
-# Read-only tools: skip without writing any event
+# Exit silently if the session was never initialized
+if not os.path.isfile(event_log):
+    sys.exit(0)
+
+tool_name  = data.get("tool_name", "")
+tool_input = data.get("tool_input") or {}
+
+# Read-only and bookkeeping tools: skip without writing any event
 SKIP_TOOLS = {
-    "Read", "Glob", "Grep", "WebSearch", "WebFetch",
-    "TodoWrite", "AskUserQuestion",
+    "Read", "Glob", "Grep", "LSP", "WebSearch", "WebFetch",
+    "TodoWrite", "TaskCreate", "TaskGet", "TaskList", "TaskUpdate",
+    "TaskOutput", "TaskStop", "AskUserQuestion", "ToolSearch",
     "ListMcpResourcesTool", "ReadMcpResourceTool",
 }
 if tool_name in SKIP_TOOLS:
     sys.exit(0)
 
-# Detect success/failure from tool_result text
-FAILURE_PATTERNS = [
-    r"(?i)\berror\b",
-    r"(?i)\bfailed?\b",
-    r"(?i)\bexception\b",
-    r"(?i)\btraceback\b",
-    r"(?i)exit code [1-9]",
-    r"(?i)command not found",
-    r"(?i)\bno such file\b",
-    r"(?i)\bpermission denied\b",
-    r"(?i)\bsyntaxerror\b",
-]
-result_str = str(tool_result)
-success    = not any(re.search(p, result_str) for p in FAILURE_PATTERNS)
+success = data.get("hook_event_name") != "PostToolUseFailure"
 
 # Extract relevant path or command
 file_path = tool_input.get("file_path", tool_input.get("path", ""))
@@ -69,6 +65,10 @@ event = {
     "command":   command,
     "success":   success,
 }
+if not success:
+    event["error"] = str(data.get("error", ""))[:300]
+    if data.get("is_interrupt"):
+        event["interrupted"] = True
 
 with open(event_log, "a") as f:
     f.write(json.dumps(event) + "\n")

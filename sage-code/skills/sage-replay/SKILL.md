@@ -7,6 +7,7 @@ allowed-tools:
   - Glob
   - Grep
   - Agent
+  - Bash(rm .sage/events/*)
 ---
 
 # SAGE-Code Session Initializer
@@ -19,16 +20,16 @@ You are the SAGE-Code replay system. You run at the start of each session to:
 ## Phase 1: Deferred Reflection
 
 1. Use Glob to find files matching `.sage/events/*.unprocessed`
-2. For each (max 3):
+2. For each (max 3), but never the log of the current session (`session-${CLAUDE_SESSION_ID}`):
    a. Read the corresponding `.jsonl` file
    b. Check if it has ≥5 tool_outcome events AND ≥1 correction/failure/positive_signal
-   c. If sufficient: dispatch the `reflector` subagent with the event log path
-   d. Delete the `.unprocessed` marker after processing
+   c. If sufficient: dispatch the `sage-code:reflector` subagent with the event log path
+   d. Delete the `.unprocessed` marker after processing (`rm .sage/events/<name>.unprocessed`)
 
 ## Phase 2: Knowledge Replay
 
 1. Read `.sage/meta/config.json` for `replay_max_heuristics` (default: 15)
-2. Read the current session's event log for git context (branch, diff_files)
+2. Read the current session's event log, `.sage/events/session-${CLAUDE_SESSION_ID}.jsonl`, for git context (branch, diff_files)
 3. Read ALL knowledge files in `.sage/knowledge/`
 4. Score each heuristic:
    - +3 if Rule text mentions files from diff_files
@@ -50,4 +51,4 @@ If empty: "Sage: No prior learnings for this project. I'll begin learning from t
 ## Phase 3: Meta-Evaluation Check
 
 Check if `sessions_since_eval` >= threshold OR `last_meta_eval` is old enough.
-If due: output "[sage] Meta-evaluation due. Run /sage-meta to evaluate heuristic effectiveness."
+If due: output "[sage] Meta-evaluation due. Run /sage-code:sage-meta to evaluate heuristic effectiveness."

@@ -1,4 +1,5 @@
 ---
+name: meta-evaluator
 description: Evaluates the effectiveness of SAGE-Code heuristics by correlating them with session outcomes. Promotes, demotes, or prunes rules based on evidence.
 model: sonnet
 tools:

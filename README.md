@@ -11,7 +11,7 @@
 
 <p align="center">
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-green.svg" alt="MIT License" /></a>
-  <a href="CHANGELOG.md"><img src="https://img.shields.io/badge/version-0.1.0-blue.svg" alt="Version" /></a>
+  <a href="CHANGELOG.md"><img src="https://img.shields.io/badge/version-0.2.0-blue.svg" alt="Version" /></a>
 </p>
 
 ---
@@ -57,9 +57,11 @@ On your first session in any project, SAGE will automatically initialize a `.sag
 
 | Command | Description |
 |---|---|
-| `/sage-status` | View what SAGE has learned about your project |
-| `/sage-reflect` | Manually trigger reflection on current session |
-| `/sage-meta` | Run meta-evaluation to score and prune heuristics |
+| `/sage-code:sage-status` | View what SAGE has learned about your project |
+| `/sage-code:sage-reflect` | Manually trigger reflection on current session |
+| `/sage-code:sage-meta` | Run meta-evaluation to score and prune heuristics |
+
+Plugin skills are namespaced by the plugin name. The short forms (`/sage-status`, `/sage-reflect`, `/sage-meta`) also work when no other command uses the same name.
 
 ## Architecture
 
@@ -89,12 +91,14 @@ On your first session in any project, SAGE will automatically initialize a `.sag
 
 ## How it works
 
-1. **SessionStart hook** initializes the event log, gathers git context, and triggers the replay skill
-2. **PostToolUse hook** captures outcomes of state-changing tools (Write, Edit, Bash)
+1. **SessionStart hook** initializes the event log, gathers git context, and tells Claude (through `additionalContext`) what there is to replay
+2. **PostToolUse and PostToolUseFailure hooks** capture the outcomes of state-changing tools (Write, Edit, Bash, ...). Claude Code reports a failed tool call as `PostToolUseFailure`, so SAGE does not guess failures from the output text
 3. **UserPromptSubmit hook** detects corrections ("no, use X instead") and praise ("perfect, exactly")
-4. **Stop hook** writes a session summary and marks the log for deferred reflection
-5. **sage-replay skill** (next session) processes pending reflections, then injects relevant heuristics
+4. **SessionEnd hook** writes a session summary and marks the log for deferred reflection
+5. **sage-replay skill** (next session) processes pending reflections, then loads relevant heuristics
 6. **Meta-evaluator** (every 10 sessions) scores rules against outcomes and prunes ineffective ones
+
+All hooks read their input as JSON from stdin, as the [Claude Code hooks reference](https://code.claude.com/docs/en/hooks) specifies. The capture hooks run with `async: true`, so they do not slow down the session.
 
 ## Project data
 
@@ -142,11 +146,18 @@ Edit `.sage/meta/config.json` to tune thresholds:
 | `stale_days` | 30 | Days without evidence before pruning |
 | `new_rule_grace_days` | 7 | Grace period before new rules can be pruned |
 
-## Running tests
+## Development
+
+Requires a current version of Claude Code (tested with v2.1.274), Python 3, and [bats-core](https://github.com/bats-core/bats-core) for the tests.
 
 ```bash
-bash sage-code/tests/run-all.sh
+bash sage-code/tests/run-all.sh          # run the test suite
+claude plugin validate . --strict        # validate the marketplace manifest
+claude plugin validate ./sage-code --strict   # validate the plugin
+claude --plugin-dir ./sage-code          # try the plugin without installing it
 ```
+
+Run `/reload-plugins` in a session to pick up changes to the plugin files.
 
 ## Design docs
 
