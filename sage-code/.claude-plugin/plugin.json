@@ -2,7 +2,7 @@
   "name": "sage-code",
   "displayName": "SAGE-Code",
   "description": "Self-Adapting Generative Engine — autonomous learning plugin that captures session events, reflects on outcomes, builds project-scoped knowledge, and self-evaluates its own rules",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "author": {
     "name": "umxr",
     "url": "https://github.com/umxr"

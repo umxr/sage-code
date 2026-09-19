@@ -1,25 +1,30 @@
 ---
 name: sage-meta
-description: Run SAGE-Code meta-evaluation to score heuristic effectiveness and prune ineffective rules. Triggers automatically every 10 sessions or daily.
+description: Run SAGE-Code meta-evaluation to score heuristic effectiveness and prune ineffective rules. Triggers automatically every 10 sessions.
 user-invocable: true
 allowed-tools:
   - Read
   - Glob
   - Grep
   - Agent
+  - Bash(sage-exposure *)
+  - Bash(sage-publish-rules *)
 ---
 
 # Meta-Evaluation Orchestrator
 
-1. Dispatch the `sage-code:meta-evaluator` subagent
-2. After evaluation, dispatch the `sage-code:knowledge-curator` subagent
-3. Report results:
+1. Run `sage-publish-rules "${CLAUDE_PROJECT_DIR}"`. It gives each heuristic a rule file, so that each one has an entry in the exposure file. The script is idempotent
+2. Run `sage-exposure "${CLAUDE_PROJECT_DIR}"`. It writes `.sage/meta/exposure.json`: for each rule, the sessions in which Claude Code loaded it
+3. Dispatch the `sage-code:meta-evaluator` subagent
+4. After evaluation, dispatch the `sage-code:knowledge-curator` subagent
+5. Run `sage-publish-rules "${CLAUDE_PROJECT_DIR}"` again. It deletes the rule files of pruned heuristics and updates the others
+6. Report results:
 
 ```
 ## Sage Meta-Evaluation Complete
 **Evaluated:** N heuristics
-**Promoted:** N (moved to CLAUDE.md)
 **Demoted:** N (confidence lowered)
 **Pruned:** N (removed, archived)
 **Average score:** 0.XX
+**Rule files:** {summary line of sage-publish-rules}
 ```

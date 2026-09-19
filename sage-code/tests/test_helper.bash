@@ -21,6 +21,15 @@ init_sage_with_log() {
   touch "$EVENT_LOG"
 }
 
+# refute_grep <pattern> <file> — fails if a line of the file matches.
+# Use this, not `! grep`: bats does not fail a test on a negated command.
+refute_grep() {
+  if grep -q -- "$1" "$2"; then
+    echo "unexpected match for '$1' in $2" >&2
+    return 1
+  fi
+}
+
 # ── Hook input builders ────────────────────────────────────────────────────
 # Claude Code sends hook input as JSON on stdin. These helpers print payloads
 # in that shape, for the session in $SESSION_ID. Pipe them into a hook script.
@@ -75,4 +84,14 @@ print(json.dumps({
     "error": sys.argv[3],
     "is_interrupt": False,
 }))' "$1" "${2:-$_EMPTY_JSON}" "${3:-Exit code 1}")"
+}
+
+# instructions_loaded_payload <file_path> [load_reason] [trigger_file_path]
+instructions_loaded_payload() {
+  _payload InstructionsLoaded "$(python3 -c '
+import json, sys
+data = {"file_path": sys.argv[1], "memory_type": "Project", "load_reason": sys.argv[2]}
+if sys.argv[3]:
+    data["trigger_file_path"] = sys.argv[3]
+print(json.dumps(data))' "$1" "${2:-session_start}" "${3:-}")"
 }

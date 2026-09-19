@@ -1,0 +1,183 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# Aggregates rule_loaded events from .sage/events/session-*.jsonl into
+# .sage/meta/exposure.json, for the meta-evaluator and the knowledge-curator.
+#
+# Usage: sage-exposure [project-dir]
+
+PROJECT_DIR="${1:-${SAGE_PROJECT_DIR:-${CLAUDE_PROJECT_DIR:-$(pwd)}}}"
+
+# ── Exit silently if .sage/ doesn't exist ─────────────────────────────────
+[ -d "$PROJECT_DIR/.sage" ] || exit 0
+
+export _SAGE_PROJECT_DIR="$PROJECT_DIR"
+
+python3 << 'PYEOF'
+import glob, json, os
+from datetime import datetime, timezone
+
+MAX_RECENT_SESSIONS = 10
+MAX_EXCERPTS        = 5
+
+project   = os.environ["_SAGE_PROJECT_DIR"]
+sage_dir  = os.path.join(project, ".sage")
+rules_dir = os.path.join(project, ".claude", "rules", "sage")
+
+# ── Read each session log ─────────────────────────────────────────────────
+sessions = []
+for path in glob.glob(os.path.join(sage_dir, "events", "session-*.jsonl")):
+    session = {
+        "session_id":  os.path.basename(path)[len("session-"):-len(".jsonl")],
+        "start":       None,
+        "active":      False,
+        "loads":       {},   # rule_id -> list of rule_loaded events
+        "corrections": [],
+        "failed":      [],
+    }
+    with open(path, encoding="utf-8") as f:
+        for line in f:
+            try:
+                event = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            kind = event.get("type")
+            # A session with no activity cannot load a path-scoped rule, so it
+            # says nothing about the rule. Only active sessions are compared.
+            if kind in ("tool_outcome", "correction", "positive_signal"):
+                session["active"] = True
+            if kind == "session_start":
+                session["start"] = event.get("ts", "")
+            elif kind == "rule_loaded" and event.get("rule_id"):
+                session["loads"].setdefault(event["rule_id"], []).append(event)
+            elif kind == "correction":
+                session["corrections"].append(event.get("excerpt", ""))
+            elif kind == "tool_outcome" and not event.get("success", True):
+                session["failed"].append(event.get("command") or event.get("tool", ""))
+    # A log with no session_start event is not a complete session
+    if session["start"] is not None:
+        sessions.append(session)
+
+sessions.sort(key=lambda s: (s["start"], s["session_id"]))
+
+def per_session(group, key):
+    active = [s for s in group if s["active"]]
+    if not active:
+        return None
+    return round(sum(len(s[key]) for s in active) / len(active), 2)
+
+# ── Read the published rule files ─────────────────────────────────────────
+# The key of a rule is the file name with no .md: the script that writes the
+# file owns the ID. Nothing computes an ID from a heading.
+published = {}
+for path in sorted(glob.glob(os.path.join(rules_dir, "*.md"))):
+    if not os.path.isfile(path):
+        continue
+    heading, has_frontmatter = None, False
+    try:
+        with open(path, encoding="utf-8") as f:
+            for number, line in enumerate(f):
+                if number == 0 and line.startswith("---"):
+                    has_frontmatter = True
+                if heading is None and line.startswith("# "):
+                    heading = line[2:].strip()
+    except (OSError, UnicodeDecodeError):
+        continue
+    published[os.path.basename(path)[:-len(".md")]] = {
+        "heading":         heading,
+        "has_frontmatter": has_frontmatter,
+    }
+
+# ── Aggregate for each rule ───────────────────────────────────────────────
+rules = {}
+for rule_id in sorted({rule_id for s in sessions for rule_id in s["loads"]}):
+    first = next(i for i, s in enumerate(sessions) if rule_id in s["loads"])
+    # Sessions before the first load are not a control group: the rule did not exist
+    loaded     = [s for s in sessions[first:] if rule_id in s["loads"]]
+    not_loaded = [s for s in sessions[first:] if rule_id not in s["loads"]]
+    events     = [e for s in loaded for e in s["loads"][rule_id]]
+    stamps     = sorted(e.get("ts", "") for e in events)
+
+    rules[rule_id] = {
+        "heading":             published.get(rule_id, {}).get("heading"),
+        "published":           rule_id in published,
+        "sessions_loaded":     len(loaded),
+        "sessions_not_loaded": len(not_loaded),
+        "active_sessions_loaded":     sum(1 for s in loaded if s["active"]),
+        "active_sessions_not_loaded": sum(1 for s in not_loaded if s["active"]),
+        "first_loaded":        stamps[0],
+        "last_loaded":         stamps[-1],
+        "always_loaded":       all(e.get("load_reason") == "session_start" for e in events),
+        "corrections_per_session_loaded":     per_session(loaded, "corrections"),
+        "corrections_per_session_not_loaded": per_session(not_loaded, "corrections"),
+        "errors_per_session_loaded":          per_session(loaded, "failed"),
+        "errors_per_session_not_loaded":      per_session(not_loaded, "failed"),
+        "recent_loaded_sessions": [
+            {
+                "session_id":      s["session_id"],
+                "trigger_files":   sorted({e["trigger_file"] for e in s["loads"][rule_id] if e.get("trigger_file")}),
+                "corrections":     s["corrections"][:MAX_EXCERPTS],
+                "failed_commands": s["failed"][:MAX_EXCERPTS],
+            }
+            for s in reversed(loaded[-MAX_RECENT_SESSIONS:])
+        ],
+    }
+
+# ── A published rule with no load event still gets an entry ───────────────
+# Without it the meta-evaluator cannot tell "not published" from "not loaded".
+for rule_id in sorted(published):
+    if rule_id in rules:
+        continue
+    rules[rule_id] = {
+        "heading":             published[rule_id]["heading"],
+        "published":           True,
+        "sessions_loaded":     0,
+        "sessions_not_loaded": 0,
+        "active_sessions_loaded":     0,
+        "active_sessions_not_loaded": 0,
+        "first_loaded":        None,
+        "last_loaded":         None,
+        # A rule with no paths frontmatter loads in each session
+        "always_loaded":       not published[rule_id]["has_frontmatter"],
+        "corrections_per_session_loaded":     None,
+        "corrections_per_session_not_loaded": None,
+        "errors_per_session_loaded":          None,
+        "errors_per_session_not_loaded":      None,
+        "recent_loaded_sessions": [],
+    }
+
+# The oldest complete session that loaded a rule: before it there is no history
+with_load    = [s for s in sessions if s["loads"]]
+exposure_since = with_load[0]["start"] if with_load else None
+
+exposure = {
+    "generated":         datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+    "sessions_total":    len(sessions),
+    "sessions_inactive": sum(1 for s in sessions if not s["active"]),
+    "exposure_since":    exposure_since,
+    "rules":             rules,
+}
+
+# ── Keep the derived file out of git ──────────────────────────────────────
+# It holds prompt excerpts and failed commands. sage-init writes the line for
+# a new project; an older project needs it too.
+IGNORE_LINE = "meta/exposure.json"
+gitignore   = os.path.join(sage_dir, ".gitignore")
+text = ""
+if os.path.isfile(gitignore):
+    try:
+        with open(gitignore, encoding="utf-8") as f:
+            text = f.read()
+    except (OSError, UnicodeDecodeError):
+        text = None
+if text is not None and IGNORE_LINE not in text.splitlines():
+    with open(gitignore, "a", encoding="utf-8") as f:
+        f.write(("" if not text or text.endswith("\n") else "\n") + IGNORE_LINE + "\n")
+
+os.makedirs(os.path.join(sage_dir, "meta"), exist_ok=True)
+with open(os.path.join(sage_dir, "meta", "exposure.json"), "w", encoding="utf-8") as f:
+    json.dump(exposure, f, indent=2)
+    f.write("\n")
+
+print(f"sage-exposure: {len(sessions)} sessions, {len(rules)} rules -> .sage/meta/exposure.json")
+PYEOF

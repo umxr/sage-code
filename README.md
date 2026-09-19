@@ -11,7 +11,7 @@
 
 <p align="center">
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-green.svg" alt="MIT License" /></a>
-  <a href="CHANGELOG.md"><img src="https://img.shields.io/badge/version-0.2.0-blue.svg" alt="Version" /></a>
+  <a href="CHANGELOG.md"><img src="https://img.shields.io/badge/version-0.3.0-blue.svg" alt="Version" /></a>
 </p>
 
 ---
@@ -24,10 +24,10 @@ SAGE-Code observes your Claude Code sessions and builds project-specific knowled
 
 - **Captures** corrections, tool outcomes, and patterns during sessions via hooks
 - **Reflects** on what worked and what didn't, extracting reusable heuristics via subagents
-- **Replays** relevant knowledge at the start of each session based on git context
-- **Self-evaluates** whether its learned rules actually help, pruning ineffective ones
+- **Replays** knowledge as native Claude Code rules: each heuristic is a file in `.claude/rules/sage/`, and a rule about `src/auth/` loads only when Claude reads a file in `src/auth/`
+- **Self-evaluates** with measured exposure: it records which rules were in context in which session, compares sessions with and without each rule, and prunes the rules that do not help
 
-Everything is fully autonomous — no manual intervention needed.
+Capture is automatic: the hooks record each session while you work. Reflection and publishing run when Claude invokes the `sage-replay` skill at the start of a later session, or when you run `/sage-code:sage-reflect`.
 
 ## Installation
 
@@ -68,12 +68,13 @@ Plugin skills are namespaced by the plugin name. The short forms (`/sage-status`
 ```
 ┌─────────────────────────────────────────────────────┐
 │  Layer 5: META-LEARNING (Self-Evaluation)           │
-│  Periodic subagent evaluates rule effectiveness     │
-│  Promotes, demotes, prunes heuristics               │
+│  Measures which rules were loaded in which session  │
+│  Demotes and prunes rules that do not help          │
 ├─────────────────────────────────────────────────────┤
-│  Layer 4: REPLAY (Session Start)                    │
-│  Scores knowledge against current task context      │
-│  Injects top 10-15 relevant heuristics              │
+│  Layer 4: REPLAY (Native Rules)                     │
+│  Publishes each heuristic to .claude/rules/sage/    │
+│  Claude Code loads a rule when a matching file is   │
+│  read                                               │
 ├─────────────────────────────────────────────────────┤
 │  Layer 3: KNOWLEDGE (Evolving Files)                │
 │  Structured markdown files with confidence scores   │
@@ -91,22 +92,24 @@ Plugin skills are namespaced by the plugin name. The short forms (`/sage-status`
 
 ## How it works
 
-1. **SessionStart hook** initializes the event log, gathers git context, and tells Claude (through `additionalContext`) what there is to replay
+1. **SessionStart hook** initializes the event log and gathers git context. It adds context for Claude (through `additionalContext`) only when a reflection is pending or meta-evaluation is due
 2. **PostToolUse and PostToolUseFailure hooks** capture the outcomes of state-changing tools (Write, Edit, Bash, ...). Claude Code reports a failed tool call as `PostToolUseFailure`, so SAGE does not guess failures from the output text
 3. **UserPromptSubmit hook** detects corrections ("no, use X instead") and praise ("perfect, exactly")
 4. **SessionEnd hook** writes a session summary and marks the log for deferred reflection
-5. **sage-replay skill** (next session) processes pending reflections, then loads relevant heuristics
-6. **Meta-evaluator** (every 10 sessions) scores rules against outcomes and prunes ineffective ones
+5. **sage-replay skill** (next session) sends the reflector to the pending session logs. The reflector gives each heuristic a `Paths` field with the files where it applies
+6. **`sage-publish-rules`** (a script, no model call) writes one rule file per heuristic to `.claude/rules/sage/`. Claude Code loads these files itself. SAGE-Code does not edit your `CLAUDE.md`
+7. **InstructionsLoaded hook** records each rule that Claude Code loads, with the file that triggered the load
+8. **Meta-evaluator** (every 10 sessions) reads the exposure data from `sage-exposure`, scores each rule, and demotes or prunes the rules that do not help
 
 All hooks read their input as JSON from stdin, as the [Claude Code hooks reference](https://code.claude.com/docs/en/hooks) specifies. The capture hooks run with `async: true`, so they do not slow down the session.
 
 ## Project data
 
-SAGE creates a `.sage/` directory in your project:
+SAGE creates a `.sage/` directory and a `.claude/rules/sage/` directory in your project:
 
 ```
 .sage/
-├── knowledge/        # Learned heuristics (committed to git)
+├── knowledge/        # Learned heuristics with evidence (committed to git)
 │   ├── pitfalls.md   # Errors and anti-patterns to avoid
 │   ├── strategies.md # Proven effective approaches
 │   ├── preferences.md# User style and workflow preferences
@@ -115,7 +118,12 @@ SAGE creates a `.sage/` directory in your project:
 ├── events/           # Session logs (gitignored, personal)
 ├── meta/             # Scores, config, history (committed)
 └── README.md         # Auto-generated summary
+
+.claude/rules/sage/   # One rule file per heuristic (committed to git)
+└── pitfall-never-use-md5-for-password-hashing.md
 ```
+
+Do not edit the files in `.claude/rules/sage/`. They are made from `.sage/knowledge/`. Edit the knowledge entry, then run `/sage-code:sage-reflect` or `sage-publish-rules`. Because the rule files are in git, each new rule appears in a diff for review.
 
 ## Knowledge lifecycle
 
@@ -123,15 +131,15 @@ Heuristics progress through confidence levels based on evidence:
 
 ```
 Captured (1 obs, low) → Reinforced (2-3, medium) → Established (4+, high)
-                                                          │
-                                                    Promoted to CLAUDE.md
-                                                          │
-                          Demoted (contradicted) ◄────────┘
-                                │
-                          Pruned (stale or score < 0.2)
+        │                        │                          │
+        └────────── published to .claude/rules/sage/ ───────┘
+                                 │
+                   Demoted (corrections continue while the rule is loaded)
+                                 │
+                   Pruned (score < 0.2, or no evidence and no load in 30 days)
 ```
 
-High-confidence rules are automatically promoted to your project's `CLAUDE.md`, where Claude reads them at every session start.
+Each heuristic is published from its first observation. Set `publish_min_confidence` to `medium` to publish a heuristic only after a second observation.
 
 ## Configuration
 
@@ -139,11 +147,10 @@ Edit `.sage/meta/config.json` to tune thresholds:
 
 | Setting | Default | Description |
 |---|---|---|
-| `replay_max_heuristics` | 15 | Max heuristics injected per session |
+| `publish_min_confidence` | `low` | Lowest confidence that is published as a rule file (`low`, `medium`, or `high`) |
 | `meta_eval_interval_sessions` | 10 | Sessions between meta-evaluations |
-| `promote_score_threshold` | 0.7 | Score needed for CLAUDE.md promotion |
 | `prune_score_threshold` | 0.2 | Score below which rules are pruned |
-| `stale_days` | 30 | Days without evidence before pruning |
+| `stale_days` | 30 | Days with no new evidence and no load before pruning |
 | `new_rule_grace_days` | 7 | Grace period before new rules can be pruned |
 
 ## Development
@@ -162,6 +169,7 @@ Run `/reload-plugins` in a session to pick up changes to the plugin files.
 ## Design docs
 
 - [Design spec](docs/superpowers/specs/2026-04-15-sage-code-design.md) — Full architecture with scientific foundations
+- [Native rules and measured exposure](docs/superpowers/specs/2026-09-17-native-rules-and-exposure-design.md) — Layers 4 and 5 since 0.3.0
 - [Implementation plan](docs/superpowers/plans/2026-04-15-sage-code-plan.md) — Task-by-task build plan
 
 ## Contributing

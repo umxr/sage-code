@@ -140,6 +140,23 @@ else:
   [ "$output" = "ok" ]
 }
 
+@test "on-session-end summary counts the different rules that loaded" {
+  python3 - "$EVENT_LOG" <<'PY2'
+import json, sys
+with open(sys.argv[1], "a") as f:
+    for rule_id in ("pitfall-a", "pitfall-a", "convention-b"):
+        f.write(json.dumps({"ts": "2026-04-15T10:00:30Z", "type": "rule_loaded", "rule_id": rule_id, "load_reason": "session_start", "trigger_file": ""}) + "\n")
+PY2
+  session_end_payload | SAGE_PROJECT_DIR="$TEST_DIR" bash "$HOOK"
+  run python3 -c "
+import json
+d = json.loads(open('$EVENT_LOG').readlines()[-1])
+print(d['summary']['rules_loaded'])
+"
+  [ "$status" -eq 0 ]
+  [ "$output" = "2" ]
+}
+
 @test "on-session-end records the reason the session ended" {
   session_end_payload clear | SAGE_PROJECT_DIR="$TEST_DIR" bash "$HOOK"
   run python3 -c "

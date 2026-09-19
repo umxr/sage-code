@@ -12,10 +12,10 @@ SAGE-Code observes your Claude Code sessions and builds project-specific knowled
 
 - **Captures** corrections, tool outcomes, and patterns during sessions
 - **Reflects** on what worked and what didn't, extracting reusable heuristics
-- **Replays** relevant knowledge at the start of each session
-- **Self-evaluates** whether its learned rules actually help, pruning ineffective ones
+- **Replays** knowledge as native Claude Code rules in `.claude/rules/sage/`; a path-scoped rule loads only when Claude reads a matching file
+- **Self-evaluates** with measured exposure (which rules loaded in which session), pruning the rules that do not help
 
-Everything is fully autonomous — no manual intervention needed.
+Capture is automatic: the hooks record each session while you work. Reflection and publishing run when Claude invokes the `sage-replay` skill at the start of a later session, or when you run `/sage-code:sage-reflect`.
 
 ## Installation
 
@@ -37,8 +37,8 @@ On your first session in any project, SAGE will automatically initialize a `.sag
 1. **Hooks** passively capture session events (corrections, tool outcomes, successes)
 2. **Reflector** analyzes events and extracts generalized heuristics with confidence scores
 3. **Knowledge files** accumulate in `.sage/knowledge/` as categorized markdown
-4. **Replay** injects only relevant heuristics at session start based on git context
-5. **Meta-evaluator** periodically scores rules and prunes ineffective ones
+4. **Rules** — `sage-publish-rules` writes one file per heuristic to `.claude/rules/sage/`; Claude Code loads a path-scoped rule only when Claude reads a matching file
+5. **Meta-evaluator** periodically scores rules with measured exposure (which rules loaded in which session) and prunes ineffective ones
 
 ## Project data
 
@@ -47,6 +47,7 @@ SAGE creates a `.sage/` directory in your project:
 - `knowledge/` — Learned heuristics (committed to git, shared with team)
 - `events/` — Raw session logs (gitignored, personal)
 - `meta/` — Evaluation scores and config (committed to git)
+- `.claude/rules/sage/` — One rule file per heuristic (committed to git, made from `knowledge/`; do not edit)
 
 ## Configuration
 

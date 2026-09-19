@@ -18,7 +18,7 @@ Generate a status report of what SAGE has learned about this project.
 2. Count `.jsonl` files in `.sage/events/`
 3. Read all `.sage/knowledge/` files, extract confidence and category per entry
 4. Read `.sage/meta/scores.json` and `.sage/meta/history.json`
-5. Check CLAUDE.md for managed section entry count
+5. Count the `*.md` files in `.claude/rules/sage/`. A file that starts with `---` has `paths:` frontmatter and is path-scoped; the others load in each session
 
 ## Output
 
@@ -27,7 +27,7 @@ Generate a status report of what SAGE has learned about this project.
 
 Sessions analyzed: {count}
 Heuristics learned: {total} ({high} high, {medium} medium, {low} low)
-Promoted to CLAUDE.md: {count}
+Published rules: {count} ({path-scoped} path-scoped, {always} always loaded)
 Pruned (ineffective): {count in archive}
 Last meta-evaluation: {date or "never"}
 
